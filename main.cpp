@@ -85,9 +85,19 @@ struct BodyPoseContext {
     std::vector<float> h_pose3d; 
     std::vector<float> h_pose2d_org;
     std::vector<float> h_pose2d;
+
+    std::ofstream poseFile;
 };
 
 // --- Initialization Functions ---
+
+void initPoseLogger(BodyPoseContext& ctx, const std::string& filename) {
+    // std::ios::out | std::ios::trunc wipes the file if it exists, creates if it doesn't
+    ctx.poseFile.open(filename, std::ios::out | std::ios::trunc);
+    if (!ctx.poseFile.is_open()) {
+        std::cerr << "Error: Could not open 3dpose.txt for writing!" << std::endl;
+    }
+}
 
 bool loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSize, cv::Size targetSize, CameraGeometry& outGeo) {
     cv::FileStorage fs(filepath, cv::FileStorage::READ);
@@ -494,6 +504,8 @@ int main() {
         return -1;
     }
 
+    initPoseLogger(bp_ctx, "3dpose.txt");
+
     cv::VideoCapture cap(0);
     cap.set(cv::CAP_PROP_FRAME_WIDTH, stream_resolution.width);
     cap.set(cv::CAP_PROP_FRAME_HEIGHT, stream_resolution.height);
@@ -534,6 +546,18 @@ int main() {
                 // Run inference on the crop
                 processAndRunBodyPose(model_input, person_box, geo, bp_ctx, bp_config);
 
+		// Log the 3D pose data to the file
+                if (bp_ctx.poseFile.is_open()) {
+                    bp_ctx.poseFile << "--- Frame Start ---" << std::endl;
+                    for (int k = 0; k < bp_config.num_keypoints; ++k) {
+                        float x = bp_ctx.h_pose3d[k * 3 + 0];
+                        float y = bp_ctx.h_pose3d[k * 3 + 1];
+                        float z = bp_ctx.h_pose3d[k * 3 + 2];
+
+                        bp_ctx.poseFile << "Keypoint_" << k << ": " << x << ", " << y << ", " << z << std::endl;
+                    }
+                }
+
                 // Draw keypoints inside the person loop
                 for (int k = 0; k < bp_config.num_keypoints; ++k) {
                     float kx_crop = bp_ctx.h_pose2d[k * 3 + 0];
@@ -555,5 +579,9 @@ int main() {
 
     cleanupTRT(trt_ctx);
     cleanupBodyPose3D(bp_ctx); // Corrected cleanup function for BodyPose
+
+    if (bp_ctx.poseFile.is_open()) {
+        bp_ctx.poseFile.close();
+    }
     return 0;
 }
