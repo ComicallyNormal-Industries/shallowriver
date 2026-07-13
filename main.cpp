@@ -84,6 +84,7 @@ struct BodyPoseContext {
     // Host buffers for outputs (Batch size of 1 for simplicity in this loop)
     std::vector<float> h_pose3d; 
     std::vector<float> h_pose2d_org;
+    std::vector<float> h_pose2d;
 };
 
 // --- Initialization Functions ---
@@ -268,6 +269,7 @@ bool initializeBodyPose3D(const std::string& engine_file, const BodyPoseConfig& 
 
     trt.h_pose3d.resize(config.num_keypoints * 3);
     trt.h_pose2d_org.resize(config.num_keypoints * 3);
+    trt.h_pose2d.resize(config.num_keypoints * 3);
 
     trt.context->setTensorAddress("input0", trt.d_input0);
     trt.context->setTensorAddress("k_inv", trt.d_k_inv);
@@ -438,8 +440,9 @@ void processAndRunBodyPose(const cv::Mat& original_frame, const cv::Rect& person
 
     bp_ctx.context->enqueueV3(bp_ctx.stream);
 
+    // Copy the raw cropped coordinates instead of the engine's estimated original coordinates
     cudaMemcpyAsync(bp_ctx.h_pose3d.data(), bp_ctx.d_pose3d, bp_ctx.h_pose3d.size() * sizeof(float), cudaMemcpyDeviceToHost, bp_ctx.stream);
-    cudaMemcpyAsync(bp_ctx.h_pose2d_org.data(), bp_ctx.d_pose2d_org, bp_ctx.h_pose2d_org.size() * sizeof(float), cudaMemcpyDeviceToHost, bp_ctx.stream);
+    cudaMemcpyAsync(bp_ctx.h_pose2d.data(), bp_ctx.d_pose2d, bp_ctx.h_pose2d.size() * sizeof(float), cudaMemcpyDeviceToHost, bp_ctx.stream);
     cudaStreamSynchronize(bp_ctx.stream);
 }
 
@@ -513,36 +516,42 @@ int main() {
 
         decodeDetections(trt_ctx, config, bboxes, confidences, class_ids);
         
-        // Capture nms_indices directly from function
+        // Render boxes first
         std::vector<int> nms_indices = applyNMSAndRender(model_input, config, bboxes, confidences, class_ids);
     
-        // Run bodypose
+        // NOW iterate over indices to define person_box and run keypoints
         for (int idx : nms_indices) {
-            // Class 0 = Person 
+            // Check if it's a person
             if (class_ids[idx] == 0) {
                 cv::Rect person_box = bboxes[idx];
                 
+                // Keep the box within frame boundaries
                 person_box.x = std::max(0, person_box.x - 10);
                 person_box.y = std::max(0, person_box.y - 10);
                 person_box.width = std::min(model_input.cols - person_box.x, person_box.width + 20);
                 person_box.height = std::min(model_input.rows - person_box.y, person_box.height + 20);
 
+                // Run inference on the crop
                 processAndRunBodyPose(model_input, person_box, geo, bp_ctx, bp_config);
 
+                // Draw keypoints inside the person loop
                 for (int k = 0; k < bp_config.num_keypoints; ++k) {
-                    float kx = bp_ctx.h_pose2d_org[k * 3 + 0];
-                    float ky = bp_ctx.h_pose2d_org[k * 3 + 1];
-                    float conf = bp_ctx.h_pose2d_org[k * 3 + 2];
+                    float kx_crop = bp_ctx.h_pose2d[k * 3 + 0];
+                    float ky_crop = bp_ctx.h_pose2d[k * 3 + 1];
+                    float conf    = bp_ctx.h_pose2d[k * 3 + 2];
                     
                     if (conf > 0.3f) {
-                        cv::circle(model_input, cv::Point(kx, ky), 3, cv::Scalar(0, 255, 255), -1);
+                        int actual_x = person_box.x + static_cast<int>((kx_crop / bp_config.input_w) * person_box.width);
+                        int actual_y = person_box.y + static_cast<int>((ky_crop / bp_config.input_h) * person_box.height);
+                        
+                        cv::circle(model_input, cv::Point(actual_x, actual_y), 4, cv::Scalar(0, 255, 255), -1);
                     }
                 }
-            } // Close if statement
-        } // Close BodyPose for-loop
+            }
+        }
 
         cv::imshow("Active TensorRT 10 Framework Output", model_input);
-    } // Close while loop
+    }
 
     cleanupTRT(trt_ctx);
     cleanupBodyPose3D(bp_ctx); // Corrected cleanup function for BodyPose
