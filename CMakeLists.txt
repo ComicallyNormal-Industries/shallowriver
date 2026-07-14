@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Find Dependencies
 find_package(OpenCV REQUIRED)
 find_package(CUDA REQUIRED)
+find_package(Eigen3 REQUIRED)
 
 # TensorRT paths (Adjust if TensorRT is installed in a custom location)
 find_path(TENSORRT_INCLUDE_DIR NvInfer.h)
@@ -22,6 +23,7 @@ include_directories(
     ${OpenCV_INCLUDE_DIRS}
     ${CUDA_INCLUDE_DIRS}
     ${TENSORRT_INCLUDE_DIR}
+    ${EIGEN3_INCLUDE_DIRS}
 )
 
 # Add executable

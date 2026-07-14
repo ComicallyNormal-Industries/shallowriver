@@ -9,6 +9,8 @@
 #include <memory>
 #include <algorithm>
 #include <unistd.h>
+#include <Eigen/Dense>
+#include <cfloat>
 
 // --- Globals & Structures ---
 
@@ -85,10 +87,14 @@ struct BodyPoseContext {
     std::vector<float> h_pose3d; 
     std::vector<float> h_pose2d_org;
     std::vector<float> h_pose2d;
+    std::vector<float> h_pose25d;
 
     std::ofstream poseFile;
 };
 
+struct NvAR_Point3f {
+    float x, y, z;
+};
 // --- Initialization Functions ---
 
 void initPoseLogger(BodyPoseContext& ctx, const std::string& filename) {
@@ -280,6 +286,7 @@ bool initializeBodyPose3D(const std::string& engine_file, const BodyPoseConfig& 
     trt.h_pose3d.resize(config.num_keypoints * 3);
     trt.h_pose2d_org.resize(config.num_keypoints * 3);
     trt.h_pose2d.resize(config.num_keypoints * 3);
+    trt.h_pose25d.resize(config.num_keypoints * 4);
 
     trt.context->setTensorAddress("input0", trt.d_input0);
     trt.context->setTensorAddress("k_inv", trt.d_k_inv);
@@ -409,6 +416,89 @@ std::vector<int> applyNMSAndRender(cv::Mat& output_image, const ModelConfig& cfg
     return nms_indices;
 }
 
+std::vector<float> calculateZRoots(const std::vector<float>& X0, const std::vector<float>& X1,
+    const std::vector<float>& Y0, const std::vector<float>& Y1,
+    const std::vector<float>& Zrel0,
+    const std::vector<float>& Zrel1, const std::vector<float>& C) {
+    std::vector<float> zRoots(X0.size());
+    for (size_t i = 0; i < X0.size(); i++) {
+        double x0 = (double)X0[i], x1 = (double)X1[i], y0 = (double)Y0[i], y1 = (double)Y1[i],
+            z0 = (double)Zrel0[i], z1 = (double)Zrel1[i];
+        double a = ((x1 - x0) * (x1 - x0)) + ((y1 - y0) * (y1 - y0));
+        double b = 2 * (z1 * ((x1 * x1) + (y1 * y1) - x1 * x0 - y1 * y0) +
+                    z0 * ((x0 * x0) + (y0 * y0) - x1 * x0 - y1 * y0));
+        double c = ((x1 * z1 - x0 * z0) * (x1 * z1 - x0 * z0)) +
+                   ((y1 * z1 - y0 * z0) * (y1 * z1 - y0 * z0)) +
+                   ((z1 - z0) * (z1 - z0)) - (C[i] * C[i]);
+        double d = (b * b) - (4 * a * c);
+
+        a = fmax(DBL_EPSILON, a);
+        d = fmax(DBL_EPSILON, d);
+        zRoots[i] = (float) ((-b + sqrt(d)) / (2 * a + 1e-8));
+    }
+    return zRoots;
+}
+
+float median(std::vector<float>& v) {
+    if (v.empty()) return 0.0f;
+    size_t n = v.size() / 2;
+    std::nth_element(v.begin(), v.begin() + n, v.end());
+    return v[n];
+}
+
+std::vector<NvAR_Point3f> liftKeypoints25DTo3D(
+    const std::vector<float>& pose25d, // Expected size: numKeypoints * 4 [x,y,zRel,conf]
+    int numKeypoints,
+    const cv::Mat& cameraMatrixInverse,
+    const std::vector<float>& limbLengths) {
+
+    const int ROOT = 0;
+    std::vector<float> zRel(numKeypoints, 0.f);
+    Eigen::MatrixXf XY1(numKeypoints, 3);
+    std::vector<float> C;
+
+    // Standard limb connection indices used by NVIDIA bodypose3dnet
+    std::vector<int> idx0 = { 0, 3, 6, 8, 5, 2, 2, 21, 23, 21, 7, 4, 1, 1, 20, 22, 20 };
+    std::vector<int> idx1 = { 3, 6, 0, 5, 2, 0, 21, 23, 25, 6, 4, 1, 0, 20, 22, 24, 6 };
+
+    std::vector<float> X0(idx0.size(), 0.f), Y0(idx0.size(), 0.f), X1(idx0.size(), 0.f), Y1(idx0.size(), 0.f),
+        zRel0(idx0.size(), 0.f), zRel1(idx0.size(), 0.f);
+
+    // Convert OpenCV inverse matrix to Eigen
+    Eigen::Matrix3f KInv;
+    for(int i=0; i<3; ++i)
+        for(int j=0; j<3; ++j)
+            KInv(i,j) = cameraMatrixInverse.at<double>(i,j);
+
+    for (int i = 0; i < numKeypoints; i++) {
+        zRel[i] = pose25d[i * 4 + 2]; // Extract Z-relative from 2.5D pose
+        XY1.row(i) << pose25d[i * 4 + 0], pose25d[i * 4 + 1], 1.f; // X, Y, 1
+
+        if (limbLengths[i] > 0.f) C.push_back(limbLengths[i]);
+    }
+    zRel[ROOT] = 0.f;
+
+    // Apply Camera Inverse Transform
+    XY1 = XY1 * KInv;
+
+    for (size_t i = 0; i < idx0.size(); i++) {
+        X0[i] = XY1(idx0[i], 0); Y0[i] = XY1(idx0[i], 1);
+        X1[i] = XY1(idx1[i], 0); Y1[i] = XY1(idx1[i], 1);
+        zRel0[i] = zRel[idx0[i]]; zRel1[i] = zRel[idx1[i]];
+    }
+
+    std::vector<float> zRoots = calculateZRoots(X0, X1, Y0, Y1, zRel0, zRel1, C);
+    float zRootsMedian = median(zRoots);
+
+    std::vector<NvAR_Point3f> p3d(numKeypoints, { 0.f, 0.f, 0.f });
+    for (int i = 0; i < numKeypoints; i++) {
+        p3d[i].x = XY1(i, 0) * (zRel[i] + zRootsMedian);
+        p3d[i].y = XY1(i, 1) * (zRel[i] + zRootsMedian);
+        p3d[i].z = XY1(i, 2) * (zRel[i] + zRootsMedian);
+    }
+    return p3d;
+}
+
 void processAndRunBodyPose(const cv::Mat& original_frame, const cv::Rect& person_box, const CameraGeometry& geo, 
                            BodyPoseContext& bp_ctx, const BodyPoseConfig& bp_cfg) {
     
@@ -447,6 +537,7 @@ void processAndRunBodyPose(const cv::Mat& original_frame, const cv::Rect& person
     cudaMemcpyAsync(bp_ctx.d_input0, blob.ptr<float>(), blob.total() * sizeof(float), cudaMemcpyHostToDevice, bp_ctx.stream);
     cudaMemcpyAsync(bp_ctx.d_k_inv, k_inv_float.ptr<float>(), 9 * sizeof(float), cudaMemcpyHostToDevice, bp_ctx.stream);
     cudaMemcpyAsync(bp_ctx.d_t_form_inv, t_form_inv.ptr<float>(), 9 * sizeof(float), cudaMemcpyHostToDevice, bp_ctx.stream);
+    cudaMemcpyAsync(bp_ctx.h_pose25d.data(), bp_ctx.d_pose25d, bp_ctx.h_pose25d.size() * sizeof(float), cudaMemcpyDeviceToHost, bp_ctx.stream);
 
     bp_ctx.context->enqueueV3(bp_ctx.stream);
 
@@ -546,15 +637,22 @@ int main() {
                 // Run inference on the crop
                 processAndRunBodyPose(model_input, person_box, geo, bp_ctx, bp_config);
 
-		// Log the 3D pose data to the file
+		// Lift the raw 2.5D output to True 3D world space coordinates
+                std::vector<NvAR_Point3f> lifted3D = liftKeypoints25DTo3D(
+                    bp_ctx.h_pose25d, 
+                    bp_config.num_keypoints, 
+                    geo.cameraMatrixInverse, 
+                    bp_config.mean_limb_lengths
+                );
+
+                // Log the true 3D pose data to the file
                 if (bp_ctx.poseFile.is_open()) {
                     bp_ctx.poseFile << "--- Frame Start ---" << std::endl;
                     for (int k = 0; k < bp_config.num_keypoints; ++k) {
-                        float x = bp_ctx.h_pose3d[k * 3 + 0];
-                        float y = bp_ctx.h_pose3d[k * 3 + 1];
-                        float z = bp_ctx.h_pose3d[k * 3 + 2];
-
-                        bp_ctx.poseFile << "Keypoint_" << k << ": " << x << ", " << y << ", " << z << std::endl;
+                        bp_ctx.poseFile << "Keypoint_" << k << ": " 
+                                        << lifted3D[k].x << ", " 
+                                        << lifted3D[k].y << ", " 
+                                        << lifted3D[k].z << std::endl;
                     }
                 }
 
