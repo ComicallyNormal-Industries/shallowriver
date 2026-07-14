@@ -463,7 +463,11 @@ std::vector<NvAR_Point3f> liftKeypoints25DTo3D(
     const std::vector<float>& pose25d, // Expected size: numKeypoints * 4 [x,y,zRel,conf]
     int numKeypoints,
     const cv::Mat& cameraMatrixInverse,
-    const std::vector<float>& limbLengths) {
+    const std::vector<float>& limbLengths,
+    const cv::Rect& person_box,
+    int crop_w,
+    int crop_h)
+    {
 
     const int ROOT = 0;
     std::vector<float> zRel(numKeypoints, 0.f);
@@ -483,12 +487,28 @@ std::vector<NvAR_Point3f> liftKeypoints25DTo3D(
         for(int j=0; j<3; ++j)
             KInv(i,j) = cameraMatrixInverse.at<double>(i,j);
 
+    
     for (int i = 0; i < numKeypoints; i++) {
-        zRel[i] = pose25d[i * 4 + 2]; // Extract Z-relative from 2.5D pose
-        XY1.row(i) << pose25d[i * 4 + 0], pose25d[i * 4 + 1], 1.f; // X, Y, 1
+        zRel[i] = pose25d[i * 4 + 2]; 
+        
+        // 1. Get raw crop coordinates (these are already 0-192 and 0-256)
+        float crop_x = pose25d[i * 4 + 0];
+        float crop_y = pose25d[i * 4 + 1];
+        
+        // 2. Map back to full 960x544 frame
+        // (Scale the crop pixel to the actual bounding box, then add the box offset)
+        float scale_x = static_cast<float>(person_box.width) / crop_w;
+        float scale_y = static_cast<float>(person_box.height) / crop_h;
 
+        float full_x = person_box.x + (crop_x * scale_x);
+        float full_y = person_box.y + (crop_y * scale_y);
+
+        // 3. Assign to Eigen Matrix for intrinsic multiplication
+        XY1.row(i) << full_x, full_y, 1.f; 
+        
         if (limbLengths[i] > 0.f) C.push_back(limbLengths[i]);
     }
+
     zRel[ROOT] = 0.f;
 
     // Apply Camera Inverse Transform
@@ -648,16 +668,20 @@ int main() {
 
                 // Run inference on the crop
                 processAndRunBodyPose(model_input, person_box, geo, bp_ctx, bp_config);
+
 		// Lift the raw 2.5D output to True 3D world space coordinates
                 std::vector<NvAR_Point3f> lifted3D = liftKeypoints25DTo3D(
                     bp_ctx.h_pose25d, 
                     bp_config.num_keypoints, 
                     geo.cameraMatrixInverse, 
-                    bp_config.mean_limb_lengths
-                );
+                    bp_config.mean_limb_lengths,
+                    person_box,         // Pass the bounding box
+                    bp_config.input_w,  // 192
+                    bp_config.input_h   // 256
+           	);
 
 		// Log the true 3D pose data to the file
-                if (bp_ctx.poseFile.is_open()) {
+		if (bp_ctx.poseFile.is_open()) {
                     bp_ctx.poseFile << "--- Frame Start ---" << std::endl;
                     for (int k = 0; k < bp_config.num_keypoints; ++k) {
                         // CHANGE: Read from the CPU-lifted struct, not the raw GPU buffer!
