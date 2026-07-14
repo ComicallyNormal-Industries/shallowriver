@@ -341,6 +341,45 @@ void cleanupTRT(TRTContext& trt) {
 
 // --- Execution & Processing Functions ---
 
+std::vector<NvAR_Point3f> processBodyPoseOutput(
+    const std::vector<float>& pose25d,
+    const std::vector<float>& pose3d_raw,
+    int numKeypoints,
+    const cv::Rect& person_box,
+    int crop_w, int crop_h,
+    const cv::Mat& cameraMatrix
+) {
+    std::vector<NvAR_Point3f> final_3d(numKeypoints);
+
+    // Extract Camera Intrinsics
+    float fx = cameraMatrix.at<double>(0, 0);
+    float fy = cameraMatrix.at<double>(1, 1);
+    float cx = cameraMatrix.at<double>(0, 2);
+    float cy = cameraMatrix.at<double>(1, 2);
+
+    for (int k = 0; k < numKeypoints; ++k) {
+        // 1. Get raw crop pixels from 2.5D output
+        float crop_x = pose25d[k * 4 + 0];
+        float crop_y = pose25d[k * 4 + 1];
+
+        // 2. Map crop pixels back to full 960x544 frame
+        float scale_x = static_cast<float>(person_box.width) / crop_w;
+        float scale_y = static_cast<float>(person_box.height) / crop_h;
+        float full_x = person_box.x + (crop_x * scale_x);
+        float full_y = person_box.y + (crop_y * scale_y);
+
+        // 3. Get the PERFECT Absolute Depth (Z) calculated by the GPU
+        float z_abs = pose3d_raw[k * 3 + 2];
+
+        // 4. Standard Pinhole Camera Projection (Pixels -> Metric World Space)
+        final_3d[k].x = (full_x - cx) * z_abs / fx;
+        final_3d[k].y = (full_y - cy) * z_abs / fy;
+        final_3d[k].z = z_abs;
+    }
+
+    return final_3d;
+}
+
 cv::Mat preprocessFrame(const cv::Mat& frame, cv::Size target_resolution) {
     cv::Mat model_input;
     cv::resize(frame, model_input, target_resolution);
@@ -459,6 +498,7 @@ float median(std::vector<float>& v) {
     return v[n];
 }
 
+/*
 std::vector<NvAR_Point3f> liftKeypoints25DTo3D(
     const std::vector<float>& pose25d, // Expected size: numKeypoints * 4 [x,y,zRel,conf]
     int numKeypoints,
@@ -531,7 +571,7 @@ std::vector<NvAR_Point3f> liftKeypoints25DTo3D(
     }
     return p3d;
 }
-
+*/
 void processAndRunBodyPose(const cv::Mat& original_frame, const cv::Rect& person_box, const CameraGeometry& geo, 
                            BodyPoseContext& bp_ctx, const BodyPoseConfig& bp_cfg) {
     
@@ -562,7 +602,7 @@ void processAndRunBodyPose(const cv::Mat& original_frame, const cv::Rect& person
     
     cv::Mat blob = cv::dnn::blobFromImage(cropped_person, 1.0/255.0, cv::Size(), cv::Scalar(0,0,0), true, false);
 
-    // --- Fix k_inv layout continuity ---
+    //Fix k_inv layout continuity
     cv::Mat k_inv_float;
     geo.cameraMatrixInverse.convertTo(k_inv_float, CV_32F);
     k_inv_float = k_inv_float.clone(); // Guarantees a continuous 9-element float array
@@ -570,11 +610,12 @@ void processAndRunBodyPose(const cv::Mat& original_frame, const cv::Rect& person
     cudaMemcpyAsync(bp_ctx.d_input0, blob.ptr<float>(), blob.total() * sizeof(float), cudaMemcpyHostToDevice, bp_ctx.stream);
     cudaMemcpyAsync(bp_ctx.d_k_inv, k_inv_float.ptr<float>(), 9 * sizeof(float), cudaMemcpyHostToDevice, bp_ctx.stream);
     cudaMemcpyAsync(bp_ctx.d_t_form_inv, t_form_inv.ptr<float>(), 9 * sizeof(float), cudaMemcpyHostToDevice, bp_ctx.stream);
-    cudaMemcpyAsync(bp_ctx.h_pose25d.data(), bp_ctx.d_pose25d, bp_ctx.h_pose25d.size() * sizeof(float), cudaMemcpyDeviceToHost, bp_ctx.stream);
-
+    
+    // Run Inference First
     bp_ctx.context->enqueueV3(bp_ctx.stream);
 
-    // Copy the raw cropped coordinates instead of the engine's estimated original coordinates
+    // Copy Outputs after inference is queued
+    cudaMemcpyAsync(bp_ctx.h_pose25d.data(), bp_ctx.d_pose25d, bp_ctx.h_pose25d.size() * sizeof(float), cudaMemcpyDeviceToHost, bp_ctx.stream);
     cudaMemcpyAsync(bp_ctx.h_pose3d.data(), bp_ctx.d_pose3d, bp_ctx.h_pose3d.size() * sizeof(float), cudaMemcpyDeviceToHost, bp_ctx.stream);
     cudaMemcpyAsync(bp_ctx.h_pose2d.data(), bp_ctx.d_pose2d, bp_ctx.h_pose2d.size() * sizeof(float), cudaMemcpyDeviceToHost, bp_ctx.stream);
     cudaStreamSynchronize(bp_ctx.stream);
@@ -668,7 +709,32 @@ int main() {
 
                 // Run inference on the crop
                 processAndRunBodyPose(model_input, person_box, geo, bp_ctx, bp_config);
+		
+		//Get the focal length from your scaled intrinsic matrix
+                float focal_length = static_cast<float>(geo.cameraMatrixScaled.at<double>(0, 0));
+                
+                // Process the coordinates using the true depth and un-cropped pixels
+                std::vector<NvAR_Point3f> final3D = processBodyPoseOutput(
+                    bp_ctx.h_pose25d, 
+                    bp_ctx.h_pose3d, 
+                    bp_config.num_keypoints, 
+                    person_box,
+                    bp_config.input_w,
+                    bp_config.input_h,
+                    geo.cameraMatrixScaled
+                );
 
+                // Log the final metric data
+                if (bp_ctx.poseFile.is_open()) {
+                    bp_ctx.poseFile << "--- Frame Start ---" << std::endl;
+                    for (int k = 0; k < bp_config.num_keypoints; ++k) {
+                        bp_ctx.poseFile << "Keypoint_" << k << ": " 
+                                        << final3D[k].x << ", " 
+                                        << final3D[k].y << ", " 
+                                        << final3D[k].z << std::endl;
+                    }
+                }		
+		/*
 		// Lift the raw 2.5D output to True 3D world space coordinates
                 std::vector<NvAR_Point3f> lifted3D = liftKeypoints25DTo3D(
                     bp_ctx.h_pose25d, 
@@ -693,7 +759,7 @@ int main() {
                                         << x << ", " << y << ", " << z << std::endl;
                     }
                 }
-
+		*/
                 // Draw keypoints inside the person loop
                 for (int k = 0; k < bp_config.num_keypoints; ++k) {
                     float kx_crop = bp_ctx.h_pose2d[k * 3 + 0];
