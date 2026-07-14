@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <Eigen/Dense>
 #include <cfloat>
+#include <cmath>
 
 // --- Globals & Structures ---
 
@@ -64,10 +65,22 @@ struct BodyPoseConfig {
     int input_h = 256;
     int num_keypoints = 34;
     
-    // Placeholder for standard skeleton lengths. 
-    // In production, these 36-element arrays come from NVIDIA's standard skeleton definition.
-    std::vector<float> scale_normalized_mean_limb_lengths = std::vector<float>(36, 1.0f);
-    std::vector<float> mean_limb_lengths = std::vector<float>(36, 1.0f);
+    // NVIDIA standard limb proportions
+    std::vector<float> scale_normalized_mean_limb_lengths = {
+      0.5000, 0.5000, 1.0000, 0.8175, 0.9889, 0.2610, 0.7942, 0.5724, 0.5078,
+      0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.3433, 0.8171,
+      0.9912, 0.2610, 0.8259, 0.5724, 0.5078, 0.0000, 0.0000, 0.0000, 0.0000,
+      0.0000, 0.0000, 0.0000, 0.3422, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000
+    };
+
+    std::vector<float> mean_limb_lengths = {
+      246.3427f, 246.3427f, 492.6854f, 402.4380f, 487.0321f, 128.6856f, 391.6295f,
+      281.9928f, 249.9478f,   0.0000f,   0.0000f,   0.0000f,   0.0000f,   0.0000f,
+        0.0000f,   0.0000f, 169.1832f, 402.2611f, 488.1824f, 128.6848f, 407.5836f,
+      281.9897f, 249.9489f,   0.0000f,   0.0000f,   0.0000f,   0.0000f,   0.0000f,
+        0.0000f,   0.0000f, 168.6137f,   0.0000f,   0.0000f,   0.0000f,   0.0000f,
+        0.0000f
+    };
 };
 
 struct BodyPoseContext {
@@ -579,7 +592,6 @@ int main() {
     }
     
     // Check & Compile Engine bodypose
-    // Check & Compile Engine bodypose
     std::string bp_onnx_file = "bodypose3dnet_performance.onnx"; 
     std::string bp_engine_file = "bodypose3dnet_performance.engine"; 
     
@@ -636,7 +648,6 @@ int main() {
 
                 // Run inference on the crop
                 processAndRunBodyPose(model_input, person_box, geo, bp_ctx, bp_config);
-
 		// Lift the raw 2.5D output to True 3D world space coordinates
                 std::vector<NvAR_Point3f> lifted3D = liftKeypoints25DTo3D(
                     bp_ctx.h_pose25d, 
@@ -645,14 +656,17 @@ int main() {
                     bp_config.mean_limb_lengths
                 );
 
-                // Log the true 3D pose data to the file
+		// Log the true 3D pose data to the file
                 if (bp_ctx.poseFile.is_open()) {
                     bp_ctx.poseFile << "--- Frame Start ---" << std::endl;
                     for (int k = 0; k < bp_config.num_keypoints; ++k) {
-                        bp_ctx.poseFile << "Keypoint_" << k << ": " 
-                                        << lifted3D[k].x << ", " 
-                                        << lifted3D[k].y << ", " 
-                                        << lifted3D[k].z << std::endl;
+                        // CHANGE: Read from the CPU-lifted struct, not the raw GPU buffer!
+                        float x = lifted3D[k].x;
+                        float y = lifted3D[k].y;
+                        float z = lifted3D[k].z;
+
+                        bp_ctx.poseFile << "Keypoint_" << k << ": "
+                                        << x << ", " << y << ", " << z << std::endl;
                     }
                 }
 
