@@ -18,16 +18,27 @@ if(NOT TENSORRT_INCLUDE_DIR OR NOT TENSORRT_LIBRARY OR NOT TENSORRT_PARSER_LIBRA
     message(FATAL_ERROR "TensorRT not found. Please check your TensorRT installation.")
 endif()
 
+set(SOURCES
+    src/main.cpp
+    src/bounding_box.cpp
+    src/intrinsics.cpp
+    src/pose_estimation.cpp
+    src/runner.cpp
+    src/text_logger.cpp
+    src/visualizer.cpp
+)
+
 # Include directories
 include_directories(
     ${OpenCV_INCLUDE_DIRS}
     ${CUDA_INCLUDE_DIRS}
     ${TENSORRT_INCLUDE_DIR}
     ${EIGEN3_INCLUDE_DIRS}
+	${CMAKE_CURRENT_SOURCE_DIR}/inc
 )
 
 # Add executable
-add_executable(${PROJECT_NAME} main.cpp)
+add_executable(${PROJECT_NAME} ${SOURCES})
 
 # Link libraries
 target_link_libraries(${PROJECT_NAME}
@@ -35,4 +46,11 @@ target_link_libraries(${PROJECT_NAME}
     ${CUDA_LIBRARIES}
     ${TENSORRT_LIBRARY}
     ${TENSORRT_PARSER_LIBRARY}
+)
+
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/res
+    ${CMAKE_CURRENT_BINARY_DIR}/res
+    COMMENT "Copying /res directory (.onnx, .yaml) to the build directory..."
 )
