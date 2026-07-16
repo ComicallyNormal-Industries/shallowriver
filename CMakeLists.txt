@@ -26,6 +26,7 @@ set(SOURCES
     src/runner.cpp
     src/text_logger.cpp
     src/visualizer.cpp
+	src/glogger.cpp
 )
 
 # Include directories

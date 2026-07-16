@@ -7,7 +7,14 @@
 #include <NvInfer.h>
 #include <NvOnnxParser.h>
 
-struct CameraGeometry;
+struct CameraGeometry {
+    cv::Mat cameraMatrixOrig;
+    cv::Mat cameraMatrixScaled;
+    cv::Mat cameraMatrixInverse;
+    cv::Mat distortionCoeffs;
+};
+
+
 
 struct BodyPoseConfig {
 		

@@ -8,23 +8,9 @@
 struct TRTContext;
 struct ModelConfig;
 
-struct CameraGeometry {
-    cv::Mat cameraMatrixOrig;
-    cv::Mat cameraMatrixScaled;
-    cv::Mat cameraMatrixInverse;
-    cv::Mat distortionCoeffs;
-};
-
 struct NvAR_Point3f {
     float x, y, z;
 };
-
-class TRTLogger : public nvinfer1::ILogger{
-	public:
-		void log(Severity severity, const char* msg) noexcept override;
-};
-
-inline TRTLogger gLogger;
 
 class runner {
 

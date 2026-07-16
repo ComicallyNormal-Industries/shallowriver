@@ -1,7 +1,6 @@
 //includes
 #include "pose_estimation.hpp"
-#include "runner.hpp"
-
+#include "glogger.hpp"
 //TODO
 //add file names
 //add reference to logger

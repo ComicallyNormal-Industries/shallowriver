@@ -1,12 +1,5 @@
 #include "runner.hpp"
 
-
-void TRTLogger::log(Severity severity, const char* msg) noexcept override {
-    if (severity <= Severity::kINFO) {
-        std::cout << "[TensorRT] " << msg << std::endl;
-    }
-}
-
 bool runner::loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSize, cv::Size targetSize, CameraGeometry& outGeo) {
 	cv::FileStorage fs(filepath, cv::FileStorage::READ);
     if (!fs.isOpened()) {

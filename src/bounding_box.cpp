@@ -1,6 +1,6 @@
 // includes
 #include "bounding_box.hpp"
-#include "runner.hpp"
+#include "glogger.hpp"
 		
 bool bounding_box::compileOnnxToEngine(const std::string& onnxPath, const std::string& enginePath, cv::Size targetSize) {
 			
