@@ -234,10 +234,17 @@ void pose_estimation::setup(std::string engine_file, std::string onnx_file){
 }
 
 //add reference to output data 
-void pose_estimation::run_frame(cv::Mat& original_frame,cv::Rect& person_box){
+void pose_estimation::run(cv::Mat& original_frame,cv::Rect& person_box){
 	;
 }
 
+BodyPoseContext* pose_estimation::getContextPtr() { 
+        return &bp_ctx; 
+}
+
+BodyPoseConfig* pose_estimation::getConfigPtr(){ 
+	return &bp_config; 
+}
 		//constructor
 pose_estimation::pose_estimation(CameraGeometry in_geo) {
 	geo = in_geo;

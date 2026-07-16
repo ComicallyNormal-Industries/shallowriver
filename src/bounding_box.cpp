@@ -159,6 +159,23 @@ void bounding_box::cleanupTRT() {
     if (trt_ctx.d_cov) cudaFree(trt_ctx.d_cov);
 }
 
+void bounding_box::setup(std::string engine_file, std::string onnx_file){
+	;
+}
+
+void bounding_box::run(cv::Mat& input_blob){
+	;
+}
+
+TRTContext* bounding_box::getContextPtr() { 
+    return &trt_ctx; 
+}
+
+    // Returns a const pointer to bp_config so it can be read but not changed
+ModelConfig* bounding_box::getConfigPtr(){ 
+	return &config; 
+}
+
 bounding_box::bounding_box(){
 	;
 }

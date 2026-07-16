@@ -34,6 +34,7 @@ cv::Mat runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution
     return cv::dnn::blobFromImage(model_input, 1.0 / 255.0, target_resolution, cv::Scalar(0,0,0), true, false);
 }
 
+
 void runner::decodeDetections(const TRTContext& trt, const ModelConfig& cfg, std::vector<cv::Rect>& bboxes, std::vector<float>& confidences, std::vector<int>& class_ids) {
     			
 	int stride_spatial = cfg.grid_h * cfg.grid_w;
@@ -156,7 +157,7 @@ void runner::setup() {
     bp_onnx_file = "bodypose3dnet_performance.onnx";
     bp_engine_file = "bodypose3dnet_performance.engine";
 
-
+	
 
 
 
@@ -168,7 +169,18 @@ void runner::setup() {
 	cap.open(0);	
     cap.set(cv::CAP_PROP_FRAME_WIDTH, stream_resolution.width);
     cap.set(cv::CAP_PROP_FRAME_HEIGHT, stream_resolution.height);
-			
+	
+
+	bbox_runner.setup("","");
+	
+	pose_runner.setup("","");
+
+	bp_ctx_ptr = pose_runner.getContextPtr();
+    bp_cfg_ptr = pose_runner.getConfigPtr();
+		
+    bb_ctx_ptr = bbox_runner.getContextPtr();
+    bb_cfg_ptr = bbox_runner.getConfigPtr();
+	
 }
 
 int runner::run() {
@@ -185,19 +197,20 @@ int runner::run() {
         cv::Mat input_blob = preprocessFrame(frame, peoplenet_resolution);
 
         //runInference(trt_ctx, input_blob);
-		runInference(input_blob);
-
+		//runInference(input_blob);
+		bbox_runner.run(input_blob);
 
         std::vector<cv::Rect> bboxes;
         std::vector<float> confidences;
         std::vector<int> class_ids;
 
         //decodeDetections(trt_ctx, config, bboxes, confidences, class_ids);
-		decodeDetections(config, bboxes, confidences, class_ids);        
+		
+		decodeDetections(bb_cfg_ptr, bboxes, confidences, class_ids);        
 
 
         // Render boxes first
-        std::vector<int> nms_indices = applyNMSAndRender(model_input, config, bboxes, confidences, class_ids);
+        std::vector<int> nms_indices = applyNMSAndRender(model_input, *bp_cfg_ptr, bboxes, confidences, class_ids);
     
         // iterate over indices to define person_box and run keypoints
         for (int idx : nms_indices) {
@@ -212,19 +225,21 @@ int runner::run() {
                 person_box.height = std::min(model_input.rows - person_box.y, person_box.height + 20);
 
                 // Run inference on the crop
-                processAndRunBodyPose(model_input, person_box);
-		
+                //processAndRunBodyPose(model_input, person_box);
+				pose_runner.run(model_input, person_box);		
+	
 				//Get the focal length from your scaled intrinsic matrix
                 float focal_length = static_cast<float>(geo.cameraMatrixScaled.at<double>(0, 0));
                 
                 // Process the coordinates using the true depth and un-cropped pixels
-                std::vector<NvAR_Point3f> final3D = processBodyPoseOutput(
-                    bp_ctx.h_pose25d, 
-                    bp_ctx.h_pose3d, 
-                    bp_config.num_keypoints, 
+                
+				std::vector<NvAR_Point3f> final3D = processBodyPoseOutput(
+                    bp_ctx_ptr->h_pose25d, 
+                    bp_ctx_ptr->h_pose3d, 
+                    bp_cfg_ptr->num_keypoints, 
                     person_box,
-                    bp_config.input_w,
-                    bp_config.input_h,
+                    bp_cfg_ptr->input_w,
+                    bp_cfg_ptr->input_h,
                     geo.cameraMatrixScaled
                 );
 				
@@ -241,14 +256,14 @@ int runner::run() {
                 }		
 				*/
                 // Draw keypoints inside the person loop
-                for (int k = 0; k < bp_config.num_keypoints; ++k) {
-                    float kx_crop = bp_ctx.h_pose2d[k * 3 + 0];
-                    float ky_crop = bp_ctx.h_pose2d[k * 3 + 1];
-                    float conf    = bp_ctx.h_pose2d[k * 3 + 2];
+                for (int k = 0; k < bp_cfg_ptr->num_keypoints; ++k) {
+                    float kx_crop = bp_ctx_ptr->h_pose2d[k * 3 + 0];
+                    float ky_crop = bp_ctx_ptr->h_pose2d[k * 3 + 1];
+                    float conf    = bp_ctx_ptr->h_pose2d[k * 3 + 2];
                     
                     if (conf > 0.3f) {
-                        int actual_x = person_box.x + static_cast<int>((kx_crop / bp_config.input_w) * person_box.width);
-                        int actual_y = person_box.y + static_cast<int>((ky_crop / bp_config.input_h) * person_box.height);
+                        int actual_x = person_box.x + static_cast<int>((kx_crop / bp_cfg_ptr->input_w) * person_box.width);
+                        int actual_y = person_box.y + static_cast<int>((ky_crop / bp_cfg_ptr->input_h) * person_box.height);
                         
                         cv::circle(model_input, cv::Point(actual_x, actual_y), 4, cv::Scalar(0, 255, 255), -1);
                     }
@@ -258,7 +273,7 @@ int runner::run() {
 		cv::imshow("Active TensorRT 10 Framework Output", model_input);
 	}
 	//add de init
-
+	return 0;
 }
 
 

@@ -85,8 +85,12 @@ class pose_estimation {
 		void setup(std::string engine_file, std::string onnx_file);
 
 		//add reference to output for return data
-		void run_frame(cv::Mat& original_frame, cv::Rect& person_box);		
+		void run(cv::Mat& original_frame, cv::Rect& person_box);		
 
+		BodyPoseContext* getContextPtr();
+		BodyPoseConfig* getConfigPtr();
+		
+		
 		
 		pose_estimation(CameraGeometry in_geo);
 
