@@ -226,8 +226,8 @@ void pose_estimation::cleanupBodyPose3D(BodyPoseContext& trt) {
     if (trt.d_pose3d) cudaFree(trt.d_pose3d);
 }
 		//constructor
-pose_estimation::pose_estimation() {
-	;
+pose_estimation::pose_estimation(CameraGeometry in_geo) {
+	geo = in_geo;
 }
 	
 		//destructor

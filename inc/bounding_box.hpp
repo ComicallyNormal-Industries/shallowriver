@@ -44,13 +44,17 @@ class bounding_box {
 
 		std::vector<char> loadEngineFile(const std::string& filename);
 
-		bool initializeTRT(const std::string& engine_file, const cv::Size& resolution, const ModelConfig& config, TRTContext& trt);
+		bool initializeTRT(const std::string& engine_file, const cv::Size& resolution);
 
-		void runInference(TRTContext& trt, const cv::Mat& input_blob);
+		void runInference(const cv::Mat& input_blob);
 	
-		void cleanupTRT(TRTContext& trt);
+		void cleanupTRT();
 
 	public:
+
+		ModelConfig config;
+		TRTContext trt_ctx;
+
 		bounding_box();
 		
 		~bounding_box();

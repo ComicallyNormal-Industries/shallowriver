@@ -59,11 +59,13 @@ struct BodyPoseContext {
 	std::vector<float> h_pose2d;
 	std::vector<float> h_pose25d;
 
-	std::ofstream poseFile;
+	//std::ofstream poseFile;
 };
 
 class pose_estimation {
 	private:
+
+		CameraGeometry geo;
 
 		bool compileOnnxToEngine(const std::string& onnxPath, const std::string& enginePath, cv::Size targetSize);
 
@@ -76,8 +78,12 @@ class pose_estimation {
 		void cleanupBodyPose3D(BodyPoseContext& trt);
 
 	public:
+
+		BodyPoseConfig bp_config;
+	    BodyPoseContext bp_ctx;
+
 		
-		pose_estimation();
+		pose_estimation(CameraGeometry in_geo);
 
 		~pose_estimation();
 };

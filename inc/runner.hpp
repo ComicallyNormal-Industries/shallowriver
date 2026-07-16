@@ -15,6 +15,18 @@ struct NvAR_Point3f {
 class runner {
 
 	private:
+
+		cv::VideoCapture cap;
+		cv::Size stream_resolution;
+	    cv::Size peoplenet_resolution;
+    	std::string onnx_file;
+    	std::string engine_file;
+	    std::string bp_onnx_file;
+	    std::string bp_engine_file;
+
+
+
+
 		bool loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSize, cv::Size targetSize, CameraGeometry& outGeo);
 
 		cv::Mat preprocessFrame(const cv::Mat& frame, cv::Size target_resolution);

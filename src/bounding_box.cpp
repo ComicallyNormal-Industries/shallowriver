@@ -120,43 +120,43 @@ std::vector<char> bounding_box::loadEngineFile(const std::string& filename) {
     return buffer;
 }
 
-bool bounding_box::initializeTRT(const std::string& engine_file, const cv::Size& resolution, const ModelConfig& config, TRTContext& trt) {
+bool bounding_box::initializeTRT(const std::string& engine_file, const cv::Size& resolution) {
 	std::vector<char> engine_data = loadEngineFile(engine_file);
  	if (engine_data.empty()) return false;
 
-	trt.runtime.reset(nvinfer1::createInferRuntime(gLogger));
-   	trt.engine.reset(trt.runtime->deserializeCudaEngine(engine_data.data(), engine_data.size()));
-    trt.context.reset(trt.engine->createExecutionContext());
+	trt_ctx.runtime.reset(nvinfer1::createInferRuntime(gLogger));
+   	trt_ctx.engine.reset(trt_ctx.runtime->deserializeCudaEngine(engine_data.data(), engine_data.size()));
+    trt_ctx.context.reset(trt_ctx.engine->createExecutionContext());
 
-    trt.h_bbox_output.resize(1 * (config.num_classes * 4) * config.grid_h * config.grid_w); 
-    trt.h_cov_output.resize(1 * config.num_classes * config.grid_h * config.grid_w);
-    trt.input_bytes = 1 * 3 * resolution.height * resolution.width * sizeof(float);
+    trt_ctx.h_bbox_output.resize(1 * (config.num_classes * 4) * config.grid_h * config.grid_w); 
+    trt_ctx.h_cov_output.resize(1 * config.num_classes * config.grid_h * config.grid_w);
+    trt_ctx.input_bytes = 1 * 3 * resolution.height * resolution.width * sizeof(float);
     
-    cudaMalloc(&trt.d_input, trt.input_bytes);
-    cudaMalloc(&trt.d_bbox, trt.h_bbox_output.size() * sizeof(float));
-    cudaMalloc(&trt.d_cov, trt.h_cov_output.size() * sizeof(float));
-    cudaStreamCreate(&trt.stream);
+    cudaMalloc(&trt_ctx.d_input, trt_ctx.input_bytes);
+    cudaMalloc(&trt_ctx.d_bbox, trt_ctx.h_bbox_output.size() * sizeof(float));
+    cudaMalloc(&trt_ctx.d_cov, trt_ctx.h_cov_output.size() * sizeof(float));
+    cudaStreamCreate(&trt_ctx.stream);
 
-    trt.context->setTensorAddress("input_1:0", trt.d_input);
-    trt.context->setTensorAddress("output_bbox/BiasAdd:0", trt.d_bbox);
-    trt.context->setTensorAddress("output_cov/Sigmoid:0", trt.d_cov);
+    trt_ctx.context->setTensorAddress("input_1:0", trt_ctx.d_input);
+    trt_ctx.context->setTensorAddress("output_bbox/BiasAdd:0", trt_ctx.d_bbox);
+    trt_ctx.context->setTensorAddress("output_cov/Sigmoid:0", trt_ctx.d_cov);
 
     return true;
 }
 
-void bounding_box::runInference(TRTContext& trt, const cv::Mat& input_blob) {
-	cudaMemcpyAsync(trt.d_input, input_blob.ptr<float>(), trt.input_bytes, cudaMemcpyHostToDevice, trt.stream);
-	trt.context->enqueueV3(trt.stream);
-  	cudaMemcpyAsync(trt.h_bbox_output.data(), trt.d_bbox, trt.h_bbox_output.size() * sizeof(float), cudaMemcpyDeviceToHost, trt.stream);
-    cudaMemcpyAsync(trt.h_cov_output.data(), trt.d_cov, trt.h_cov_output.size() * sizeof(float), cudaMemcpyDeviceToHost, trt.stream);
-    cudaStreamSynchronize(trt.stream);
+void bounding_box::runInference(const cv::Mat& input_blob) {
+	cudaMemcpyAsync(trt_ctx.d_input, input_blob.ptr<float>(), trt_ctx.input_bytes, cudaMemcpyHostToDevice, trt_ctx.stream);
+	trt_ctx.context->enqueueV3(trt_ctx.stream);
+  	cudaMemcpyAsync(trt_ctx.h_bbox_output.data(), trt_ctx.d_bbox, trt_ctx.h_bbox_output.size() * sizeof(float), cudaMemcpyDeviceToHost, trt_ctx.stream);
+    cudaMemcpyAsync(trt_ctx.h_cov_output.data(), trt_ctx.d_cov, trt_ctx.h_cov_output.size() * sizeof(float), cudaMemcpyDeviceToHost, trt_ctx.stream);
+    cudaStreamSynchronize(trt_ctx.stream);
 }
 
-void bounding_box::cleanupTRT(TRTContext& trt) {
-	if (trt.stream) cudaStreamDestroy(trt.stream);
-	if (trt.d_input) cudaFree(trt.d_input);
-	if (trt.d_bbox) cudaFree(trt.d_bbox);
-    if (trt.d_cov) cudaFree(trt.d_cov);
+void bounding_box::cleanupTRT() {
+	if (trt_ctx.stream) cudaStreamDestroy(trt_ctx.stream);
+	if (trt_ctx.d_input) cudaFree(trt_ctx.d_input);
+	if (trt_ctx.d_bbox) cudaFree(trt_ctx.d_bbox);
+    if (trt_ctx.d_cov) cudaFree(trt_ctx.d_cov);
 }
 
 bounding_box::bounding_box(){

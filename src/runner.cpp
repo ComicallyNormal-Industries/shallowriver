@@ -147,17 +147,25 @@ std::vector<NvAR_Point3f> runner::processBodyPoseOutput(
 }
 
 void runner::setup() {
-		    
-	cv::Size stream_resolution(1920, 1080);
-    cv::Size peoplenet_resolution(960, 544);
+
+    cv::VideoCapture cap;
+    stream_resolution = cv::Size(1920, 1080);
+    peoplenet_resolution = cv::Size(960, 544);
+    onnx_file = "resnet34_peoplenet.onnx";
+    engine_file = "peoplenet.engine";
+    bp_onnx_file = "bodypose3dnet_performance.onnx";
+    bp_engine_file = "bodypose3dnet_performance.engine";
+
+
+
+
 
 	// Load Calibration
     CameraGeometry geo;
     if (!loadAndScaleIntrinsics("calibration.yaml", stream_resolution, peoplenet_resolution, geo)) {
         std::cerr << "Warning: Could not load calibration data." << std::endl;
     }
-		
-	cv::VideoCapture cap(0);
+	cap.open(0);	
     cap.set(cv::CAP_PROP_FRAME_WIDTH, stream_resolution.width);
     cap.set(cv::CAP_PROP_FRAME_HEIGHT, stream_resolution.height);
 			
@@ -176,14 +184,18 @@ int runner::run() {
         cv::resize(frame, model_input, peoplenet_resolution);
         cv::Mat input_blob = preprocessFrame(frame, peoplenet_resolution);
 
-        runInference(trt_ctx, input_blob);
+        //runInference(trt_ctx, input_blob);
+		runInference(input_blob);
+
 
         std::vector<cv::Rect> bboxes;
         std::vector<float> confidences;
         std::vector<int> class_ids;
 
-        decodeDetections(trt_ctx, config, bboxes, confidences, class_ids);
-        
+        //decodeDetections(trt_ctx, config, bboxes, confidences, class_ids);
+		decodeDetections(config, bboxes, confidences, class_ids);        
+
+
         // Render boxes first
         std::vector<int> nms_indices = applyNMSAndRender(model_input, config, bboxes, confidences, class_ids);
     
@@ -200,7 +212,7 @@ int runner::run() {
                 person_box.height = std::min(model_input.rows - person_box.y, person_box.height + 20);
 
                 // Run inference on the crop
-                processAndRunBodyPose(model_input, person_box, geo, bp_ctx, bp_config);
+                processAndRunBodyPose(model_input, person_box);
 		
 				//Get the focal length from your scaled intrinsic matrix
                 float focal_length = static_cast<float>(geo.cameraMatrixScaled.at<double>(0, 0));
@@ -215,7 +227,8 @@ int runner::run() {
                     bp_config.input_h,
                     geo.cameraMatrixScaled
                 );
-
+				
+				/* add log functionality back
                 // Log the final metric data
                 if (bp_ctx.poseFile.is_open()) {
                     bp_ctx.poseFile << "--- Frame Start ---" << std::endl;
@@ -226,7 +239,7 @@ int runner::run() {
                                         << final3D[k].z << std::endl;
                     }
                 }		
-
+				*/
                 // Draw keypoints inside the person loop
                 for (int k = 0; k < bp_config.num_keypoints; ++k) {
                     float kx_crop = bp_ctx.h_pose2d[k * 3 + 0];
