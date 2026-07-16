@@ -206,11 +206,11 @@ int runner::run() {
 
         //decodeDetections(trt_ctx, config, bboxes, confidences, class_ids);
 		
-		decodeDetections(bb_cfg_ptr, bboxes, confidences, class_ids);        
+		decodeDetections(*bb_ctx_ptr, *bb_cfg_ptr, bboxes, confidences, class_ids);        
 
 
         // Render boxes first
-        std::vector<int> nms_indices = applyNMSAndRender(model_input, *bp_cfg_ptr, bboxes, confidences, class_ids);
+        std::vector<int> nms_indices = applyNMSAndRender(model_input, *bb_cfg_ptr, bboxes, confidences, class_ids);
     
         // iterate over indices to define person_box and run keypoints
         for (int idx : nms_indices) {

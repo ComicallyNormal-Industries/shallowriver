@@ -1,6 +1,11 @@
-void TRTLogger::log(Severity severity, const char* msg) noexcept override {
-    if (severity <= Severity::kINFO) {
-        std::cout << "[TensorRT] " << msg << std::endl;
+#include "glogger.hpp"
+#include <iostream> 
+
+void TRTLogger::log(nvinfer1::ILogger::Severity severity, const char* msg) noexcept {
+    
+    // Only print errors and warnings to avoid spamming your console
+    if (severity <= nvinfer1::ILogger::Severity::kWARNING) {
+        std::cout << "[TRT] " << msg << std::endl;
     }
 }
 

@@ -41,7 +41,7 @@ class runner {
 
 		cv::Mat preprocessFrame(const cv::Mat& frame, cv::Size target_resolution);
 
-		void decodeDetections(*bb_ctx_ptr, *bb_cfg_ptr, bboxes, confidences, class_ids);
+		void decodeDetections(const TRTContext& trt, const ModelConfig& cfg, std::vector<cv::Rect>& bboxes, std::vector<float>& confidences, std::vector<int>& class_ids);
 
 		std::vector<int> applyNMSAndRender(cv::Mat& output_image, const ModelConfig& cfg, const std::vector<cv::Rect>& bboxes, const std::vector<float>& confidences, const std::vector<int>& class_ids);
 
