@@ -225,6 +225,19 @@ void pose_estimation::cleanupBodyPose3D(BodyPoseContext& trt) {
     if (trt.d_pose25d) cudaFree(trt.d_pose25d);
     if (trt.d_pose3d) cudaFree(trt.d_pose3d);
 }
+
+void pose_estimation::setup(std::string engine_file, std::string onnx_file){
+	//load calibration data needed
+	//handle engine creation
+	
+	;
+}
+
+//add reference to output data 
+void pose_estimation::run_frame(cv::Mat& original_frame,cv::Rect& person_box){
+	;
+}
+
 		//constructor
 pose_estimation::pose_estimation(CameraGeometry in_geo) {
 	geo = in_geo;
