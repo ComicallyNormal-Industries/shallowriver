@@ -52,5 +52,5 @@ class runner {
 	public:
 
 		int run();
-
+		runner();
 };

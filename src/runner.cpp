@@ -277,4 +277,6 @@ int runner::run() {
 }
 
 
-
+runner::runner() : pose_runner(geo) {
+    // The body can stay completely empty.
+}
