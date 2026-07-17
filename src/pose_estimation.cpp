@@ -165,7 +165,7 @@ std::vector<char> pose_estimation::loadEngineFile(const std::string& filename) {
     return buffer;
 }
 		
-void pose_estimation::processAndRunBodyPose(const cv::Mat& original_frame, const cv::Rect& person_box, const CameraGeometry& geo, BodyPoseContext& bp_ctx, const BodyPoseConfig& bp_cfg) {
+void pose_estimation::processAndRunBodyPose(const cv::Mat& original_frame, const cv::Rect& person_box) {
     
     cv::Point2f src_pts[3], dst_pts[3];
     src_pts[0] = cv::Point2f(person_box.x, person_box.y);
@@ -173,8 +173,8 @@ void pose_estimation::processAndRunBodyPose(const cv::Mat& original_frame, const
     src_pts[2] = cv::Point2f(person_box.x, person_box.y + person_box.height);
     
     dst_pts[0] = cv::Point2f(0, 0);
-    dst_pts[1] = cv::Point2f(bp_cfg.input_w, 0);
-    dst_pts[2] = cv::Point2f(0, bp_cfg.input_h);
+    dst_pts[1] = cv::Point2f(bp_config.input_w, 0);
+    dst_pts[2] = cv::Point2f(0, bp_config.input_h);
 
     //t_form_inv allocation and type precision ---
     cv::Mat t_form = cv::getAffineTransform(src_pts, dst_pts);
@@ -190,7 +190,7 @@ void pose_estimation::processAndRunBodyPose(const cv::Mat& original_frame, const
     t_form_inv = t_form_inv.clone();
 
     cv::Mat cropped_person;
-    cv::warpAffine(original_frame, cropped_person, t_form, cv::Size(bp_cfg.input_w, bp_cfg.input_h));
+    cv::warpAffine(original_frame, cropped_person, t_form, cv::Size(bp_config.input_w, bp_config.input_h));
     
     cv::Mat blob = cv::dnn::blobFromImage(cropped_person, 1.0/255.0, cv::Size(), cv::Scalar(0,0,0), true, false);
 
@@ -237,6 +237,7 @@ int pose_estimation::setup(std::string engine_file, std::string onnx_file, cv::S
 
 //add reference to output data 
 int pose_estimation::run(cv::Mat& original_frame,cv::Rect& person_box){
+	processAndRunBodyPose(original_frame, person_box);
 	return 1;
 }
 

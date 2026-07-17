@@ -71,7 +71,7 @@ class pose_estimation {
 
 		std::vector<char> loadEngineFile(const std::string& filename);
 		
-		void processAndRunBodyPose(const cv::Mat& original_frame, const cv::Rect& person_box, const CameraGeometry& geo, BodyPoseContext& bp_ctx, const BodyPoseConfig& bp_cfg);
+		void processAndRunBodyPose(const cv::Mat& original_frame, const cv::Rect& person_box);
 
 		void cleanupBodyPose3D(BodyPoseContext& trt);
 
