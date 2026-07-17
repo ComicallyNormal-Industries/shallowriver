@@ -19,10 +19,12 @@ class runner {
 		cv::VideoCapture cap;
 		cv::Size stream_resolution;
 	    cv::Size peoplenet_resolution;
-    	std::string onnx_file;
-    	std::string engine_file;
+    	std::string bb_onnx_file;
+    	std::string bb_engine_file;
 	    std::string bp_onnx_file;
 	    std::string bp_engine_file;
+
+		std::string calib_file;
 
 		CameraGeometry geo;
 
@@ -47,7 +49,7 @@ class runner {
 
 		std::vector<NvAR_Point3f> processBodyPoseOutput(const std::vector<float>& pose25d, const std::vector<float>& pose3d_raw, int numKeypoints, const cv::Rect& person_box, int crop_w, int crop_h, const cv::Mat& cameraMatrix);
 
-		void setup();
+		int setup();
 
 	public:
 

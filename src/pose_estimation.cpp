@@ -111,46 +111,46 @@ bool pose_estimation::compileOnnxToEngine(const std::string& onnxPath, const std
     return true;
 }
 
-bool pose_estimation::initializeBodyPose3D(const std::string& engine_file, const BodyPoseConfig& config, BodyPoseContext& trt) {
+bool pose_estimation::initializeBodyPose3D(const std::string& engine_file) {
     std::vector<char> engine_data = loadEngineFile(engine_file);
     if (engine_data.empty()) return false;
 
-    trt.runtime.reset(nvinfer1::createInferRuntime(gLogger));
-    trt.engine.reset(trt.runtime->deserializeCudaEngine(engine_data.data(), engine_data.size()));
-    trt.context.reset(trt.engine->createExecutionContext());
+    bp_ctx.runtime.reset(nvinfer1::createInferRuntime(gLogger));
+    bp_ctx.engine.reset(bp_ctx.runtime->deserializeCudaEngine(engine_data.data(), engine_data.size()));
+    bp_ctx.context.reset(bp_ctx.engine->createExecutionContext());
 
-    cudaStreamCreate(&trt.stream);
+    cudaStreamCreate(&bp_ctx.stream);
 
-    cudaMalloc(&trt.d_input0, 1 * 3 * config.input_h * config.input_w * sizeof(float));
-    cudaMalloc(&trt.d_k_inv, 1 * 3 * 3 * sizeof(float));
-    cudaMalloc(&trt.d_t_form_inv, 1 * 3 * 3 * sizeof(float));
-    cudaMalloc(&trt.d_scale_norm_limb, 1 * 36 * sizeof(float));
-    cudaMalloc(&trt.d_mean_limb, 1 * 36 * sizeof(float));
+    cudaMalloc(&bp_ctx.d_input0, 1 * 3 * bp_config.input_h * bp_config.input_w * sizeof(float));
+    cudaMalloc(&bp_ctx.d_k_inv, 1 * 3 * 3 * sizeof(float));
+    cudaMalloc(&bp_ctx.d_t_form_inv, 1 * 3 * 3 * sizeof(float));
+    cudaMalloc(&bp_ctx.d_scale_norm_limb, 1 * 36 * sizeof(float));
+    cudaMalloc(&bp_ctx.d_mean_limb, 1 * 36 * sizeof(float));
 
-    cudaMalloc(&trt.d_pose2d, 1 * config.num_keypoints * 3 * sizeof(float));
-    cudaMalloc(&trt.d_pose2d_org, 1 * config.num_keypoints * 3 * sizeof(float));
-   	cudaMalloc(&trt.d_pose25d, 1 * config.num_keypoints * 4 * sizeof(float));
-    cudaMalloc(&trt.d_pose3d, 1 * config.num_keypoints * 3 * sizeof(float));
+    cudaMalloc(&bp_ctx.d_pose2d, 1 * bp_config.num_keypoints * 3 * sizeof(float));
+    cudaMalloc(&bp_ctx.d_pose2d_org, 1 * bp_config.num_keypoints * 3 * sizeof(float));
+   	cudaMalloc(&bp_ctx.d_pose25d, 1 * bp_config.num_keypoints * 4 * sizeof(float));
+    cudaMalloc(&bp_ctx.d_pose3d, 1 * bp_config.num_keypoints * 3 * sizeof(float));
 
-    trt.h_pose3d.resize(config.num_keypoints * 3);
-    trt.h_pose2d_org.resize(config.num_keypoints * 3);
-    trt.h_pose2d.resize(config.num_keypoints * 3);
-    trt.h_pose25d.resize(config.num_keypoints * 4);
+    bp_ctx.h_pose3d.resize(bp_config.num_keypoints * 3);
+    bp_ctx.h_pose2d_org.resize(bp_config.num_keypoints * 3);
+    bp_ctx.h_pose2d.resize(bp_config.num_keypoints * 3);
+    bp_ctx.h_pose25d.resize(bp_config.num_keypoints * 4);
 
-    trt.context->setTensorAddress("input0", trt.d_input0);
-    trt.context->setTensorAddress("k_inv", trt.d_k_inv);
-   	trt.context->setTensorAddress("t_form_inv", trt.d_t_form_inv);
-    trt.context->setTensorAddress("scale_normalized_mean_limb_lengths", trt.d_scale_norm_limb);
-    trt.context->setTensorAddress("mean_limb_lengths", trt.d_mean_limb);
+    bp_ctx.context->setTensorAddress("input0", bp_ctx.d_input0);
+    bp_ctx.context->setTensorAddress("k_inv", bp_ctx.d_k_inv);
+   	bp_ctx.context->setTensorAddress("t_form_inv", bp_ctx.d_t_form_inv);
+    bp_ctx.context->setTensorAddress("scale_normalized_mean_limb_lengths", bp_ctx.d_scale_norm_limb);
+    bp_ctx.context->setTensorAddress("mean_limb_lengths", bp_ctx.d_mean_limb);
     
-    trt.context->setTensorAddress("pose2d", trt.d_pose2d);
-    trt.context->setTensorAddress("pose2d_org_img", trt.d_pose2d_org);
-    trt.context->setTensorAddress("pose25d", trt.d_pose25d);
-    trt.context->setTensorAddress("pose3d", trt.d_pose3d);
+    bp_ctx.context->setTensorAddress("pose2d", bp_ctx.d_pose2d);
+    bp_ctx.context->setTensorAddress("pose2d_org_img", bp_ctx.d_pose2d_org);
+    bp_ctx.context->setTensorAddress("pose25d", bp_ctx.d_pose25d);
+    bp_ctx.context->setTensorAddress("pose3d", bp_ctx.d_pose3d);
 
-    cudaMemcpyAsync(trt.d_scale_norm_limb, config.scale_normalized_mean_limb_lengths.data(), 36 * sizeof(float), cudaMemcpyHostToDevice, trt.stream);
-    cudaMemcpyAsync(trt.d_mean_limb, config.mean_limb_lengths.data(), 36 * sizeof(float), cudaMemcpyHostToDevice, trt.stream);
-   	cudaStreamSynchronize(trt.stream);
+    cudaMemcpyAsync(bp_ctx.d_scale_norm_limb, bp_config.scale_normalized_mean_limb_lengths.data(), 36 * sizeof(float), cudaMemcpyHostToDevice, bp_ctx.stream);
+    cudaMemcpyAsync(bp_ctx.d_mean_limb, bp_config.mean_limb_lengths.data(), 36 * sizeof(float), cudaMemcpyHostToDevice, bp_ctx.stream);
+   	cudaStreamSynchronize(bp_ctx.stream);
 
     return true;
 }
@@ -226,16 +226,18 @@ void pose_estimation::cleanupBodyPose3D(BodyPoseContext& trt) {
     if (trt.d_pose3d) cudaFree(trt.d_pose3d);
 }
 
-void pose_estimation::setup(std::string engine_file, std::string onnx_file){
+int pose_estimation::setup(std::string engine_file, std::string onnx_file, cv::Size targetSize){
 	//load calibration data needed
 	//handle engine creation
-	
-	;
+	compileOnnxToEngine(onnx_file, engine_file, targetSize);
+	initializeBodyPose3D(engine_file);
+	std::cout << "body pose runner setup succesfull" << std::endl;
+	return 1;
 }
 
 //add reference to output data 
-void pose_estimation::run(cv::Mat& original_frame,cv::Rect& person_box){
-	;
+int pose_estimation::run(cv::Mat& original_frame,cv::Rect& person_box){
+	return 1;
 }
 
 BodyPoseContext* pose_estimation::getContextPtr() { 

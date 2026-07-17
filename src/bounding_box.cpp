@@ -159,12 +159,30 @@ void bounding_box::cleanupTRT() {
     if (trt_ctx.d_cov) cudaFree(trt_ctx.d_cov);
 }
 
-void bounding_box::setup(std::string engine_file, std::string onnx_file){
-	;
+int bounding_box::setup(std::string engine_file, std::string onnx_file, cv::Size targetSize){
+
+	    // Check & Compile Engine PeopleNet
+    if (access(engine_file.c_str(), F_OK) == -1) {
+        std::cout << "Notice: Compiled execution target file '" << engine_file << "' not found." << std::endl;
+        if (!compileOnnxToEngine(onnx_file, engine_file, targetSize)) {
+            std::cout << "compileing bounding box engine file faild" << std::endl;
+			return -1;
+        }
+    }
+
+	    // Initialize TensorRT Runtime
+    if (!initializeTRT(engine_file, targetSize)) {
+        std::cerr << "Error: Failed to initialize TensorRT." << std::endl;
+        return -1;
+    }
+	return 1;
+
 }
 
-void bounding_box::run(cv::Mat& input_blob){
-	;
+int bounding_box::run(cv::Mat& input_blob){
+	runInference(input_blob);
+	printTRTContext();	
+	return 1;
 }
 
 TRTContext* bounding_box::getContextPtr() { 
@@ -175,6 +193,39 @@ TRTContext* bounding_box::getContextPtr() {
 ModelConfig* bounding_box::getConfigPtr(){ 
 	return &config; 
 }
+
+void bounding_box::printTRTContext() {
+    std::cout << "=== TRTContext State ===" << std::endl;
+
+    // 1. TensorRT Smart Pointers (Check if they hold memory)
+    std::cout << "Runtime:       " << (trt_ctx.runtime ? "Allocated" : "nullptr") << std::endl;
+    std::cout << "Engine:        " << (trt_ctx.engine ? "Allocated" : "nullptr") << std::endl;
+    std::cout << "Context:       " << (trt_ctx.context ? "Allocated" : "nullptr") << std::endl;
+
+    // 2. CUDA Stream
+    std::cout << "CUDA Stream:   " << trt_ctx.stream << std::endl;
+
+    // 3. GPU Device Pointers (Will print as hex memory addresses)
+    std::cout << "d_input:       " << trt_ctx.d_input << std::endl;
+    std::cout << "d_bbox:        " << trt_ctx.d_bbox << std::endl;
+    std::cout << "d_cov:         " << trt_ctx.d_cov << std::endl;
+
+    // 4. Host Vectors (Print size and the first value as a sanity check)
+    std::cout << "h_bbox_output: " << trt_ctx.h_bbox_output.size() << " elements" << std::endl;
+    if (!trt_ctx.h_bbox_output.empty()) {
+        std::cout << "  └> [0]:      " << trt_ctx.h_bbox_output[0] << std::endl;
+    }
+
+    std::cout << "h_cov_output:  " << trt_ctx.h_cov_output.size() << " elements" << std::endl;
+    if (!trt_ctx.h_cov_output.empty()) {
+        std::cout << "  └> [0]:      " << trt_ctx.h_cov_output[0] << std::endl;
+    }
+
+    // 5. Memory Metadata
+    std::cout << "Input Bytes:   " << trt_ctx.input_bytes << " bytes" << std::endl;
+    std::cout << "========================" << std::endl;
+}
+
 
 bounding_box::bounding_box(){
 	;

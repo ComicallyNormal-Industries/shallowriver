@@ -14,8 +14,6 @@ struct CameraGeometry {
     cv::Mat distortionCoeffs;
 };
 
-
-
 struct BodyPoseConfig {
 		
 	int input_w = 192;
@@ -69,7 +67,7 @@ class pose_estimation {
 
 		bool compileOnnxToEngine(const std::string& onnxPath, const std::string& enginePath, cv::Size targetSize);
 
-		bool initializeBodyPose3D(const std::string& engine_file, const BodyPoseConfig& config, BodyPoseContext& trt);
+		bool initializeBodyPose3D(const std::string& engine_file);
 
 		std::vector<char> loadEngineFile(const std::string& filename);
 		
@@ -82,10 +80,10 @@ class pose_estimation {
 		BodyPoseConfig bp_config;
 	    BodyPoseContext bp_ctx;
 
-		void setup(std::string engine_file, std::string onnx_file);
+		int setup(std::string engine_file, std::string onnx_file, cv::Size targetSize);
 
 		//add reference to output for return data
-		void run(cv::Mat& original_frame, cv::Rect& person_box);		
+		int run(cv::Mat& original_frame, cv::Rect& person_box);		
 
 		BodyPoseContext* getContextPtr();
 		BodyPoseConfig* getConfigPtr();

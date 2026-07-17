@@ -7,6 +7,7 @@
 #include <NvInfer.h>
 #include <NvOnnxParser.h>
 #include <fstream>
+#include <unistd.h>
 
 struct ModelConfig {
     int grid_h = 34;
@@ -38,6 +39,7 @@ struct TRTContext {
 };
 
 
+
 class bounding_box {
 	private:
 		bool compileOnnxToEngine(const std::string& onnxPath, const std::string& enginePath, cv::Size targetSize);
@@ -55,11 +57,13 @@ class bounding_box {
 		ModelConfig config;
 		TRTContext trt_ctx;
 
-		void setup(std::string engine_file, std::string onnx_file);
-		void run(cv::Mat& input_blob);
+		int setup(std::string engine_file, std::string onnx_file, cv::Size targetSize);
+		int run(cv::Mat& input_blob);
 
 		TRTContext* getContextPtr();
 		ModelConfig* getConfigPtr();
+
+		void printTRTContext();
 
 		bounding_box();
 		

@@ -85,6 +85,7 @@ void runner::decodeDetections(const TRTContext& trt, const ModelConfig& cfg, std
     }
 }
 
+
 std::vector<int> runner::applyNMSAndRender(cv::Mat& output_image, const ModelConfig& cfg, const std::vector<cv::Rect>& bboxes, const std::vector<float>& confidences, const std::vector<int>& class_ids) {
     std::vector<int> nms_indices;
     cv::dnn::NMSBoxes(bboxes, confidences, cfg.conf_threshold, cfg.nms_threshold, nms_indices);
@@ -147,33 +148,35 @@ std::vector<NvAR_Point3f> runner::processBodyPoseOutput(
     return final_3d;
 }
 
-void runner::setup() {
+int runner::setup() {
 
-    cv::VideoCapture cap;
     stream_resolution = cv::Size(1920, 1080);
     peoplenet_resolution = cv::Size(960, 544);
-    onnx_file = "resnet34_peoplenet.onnx";
-    engine_file = "peoplenet.engine";
-    bp_onnx_file = "bodypose3dnet_performance.onnx";
-    bp_engine_file = "bodypose3dnet_performance.engine";
+    bb_onnx_file = "res/resnet34_peoplenet.onnx";
+    bb_engine_file = "res/peoplenet.engine";
+    bp_onnx_file = "res/bodypose3dnet_performance.onnx";
+    bp_engine_file = "res/bodypose3dnet_performance.engine";
 
-	
+	calib_file = "res/calibration.yaml";
 
-
-
-	// Load Calibration
-    CameraGeometry geo;
-    if (!loadAndScaleIntrinsics("calibration.yaml", stream_resolution, peoplenet_resolution, geo)) {
+    if (!loadAndScaleIntrinsics(calib_file, stream_resolution, peoplenet_resolution, geo)) {
         std::cerr << "Warning: Could not load calibration data." << std::endl;
     }
-	cap.open(0);	
+	//cap.open(0);	
     cap.set(cv::CAP_PROP_FRAME_WIDTH, stream_resolution.width);
     cap.set(cv::CAP_PROP_FRAME_HEIGHT, stream_resolution.height);
 	
-
-	bbox_runner.setup("","");
+	std::cout << "set up bounding box runner" << std::endl;
+	if(!bbox_runner.setup(bb_engine_file,bb_onnx_file, peoplenet_resolution)){
+		std::cout << "set up bounding box runner failed" << std::endl;
+		return -1;
+	}
 	
-	pose_runner.setup("","");
+	std::cout << "set up pose estimation runner" << std::endl;
+	if(!pose_runner.setup(bp_engine_file,bp_onnx_file, cv::Size(192, 256))){
+		std::cout << "set up pose estimation runner failed" << std::endl;
+		return -1;
+	}	
 
 	bp_ctx_ptr = pose_runner.getContextPtr();
     bp_cfg_ptr = pose_runner.getConfigPtr();
@@ -181,24 +184,39 @@ void runner::setup() {
     bb_ctx_ptr = bbox_runner.getContextPtr();
     bb_cfg_ptr = bbox_runner.getConfigPtr();
 	
+	return 1;	
 }
 
 int runner::run() {
-	setup();
+	if(!setup()){
+		std::cout << "runner setup failed" << std::endl;
+		return -1;
+	}
 
 	std::cout << "Starting real-time production TensorRT 10 execution loop..." << std::endl;
     cv::Mat frame, model_input;
-
+	std::cout << "preloop" << std::endl;
 	while (cv::waitKey(1) != 27) { // Press ESC to terminate cleanly
-        cap >> frame;
-        if (frame.empty()) break;
+        std::cout << "test" << std::endl;
+		cap >> frame;
+        if (frame.empty()) { 
+			std::cerr << "frame capture failed ... " << std::endl;
+			break;
+		}
+
+		std::cout << "frame captured" << std::endl;
 
         cv::resize(frame, model_input, peoplenet_resolution);
         cv::Mat input_blob = preprocessFrame(frame, peoplenet_resolution);
 
         //runInference(trt_ctx, input_blob);
 		//runInference(input_blob);
-		bbox_runner.run(input_blob);
+		if(!bbox_runner.run(input_blob)){
+			std::cout << "running bounding box model failed" << std::endl;
+			return -1;
+		}
+
+		std::cout << "bounding box run successful" << std::endl;
 
         std::vector<cv::Rect> bboxes;
         std::vector<float> confidences;
@@ -208,10 +226,10 @@ int runner::run() {
 		
 		decodeDetections(*bb_ctx_ptr, *bb_cfg_ptr, bboxes, confidences, class_ids);        
 
-
+		std::cout << "decode detections successful" << std::endl;
         // Render boxes first
         std::vector<int> nms_indices = applyNMSAndRender(model_input, *bb_cfg_ptr, bboxes, confidences, class_ids);
-    
+   		std::cout << "nms_indices successful" << std::endl; 
         // iterate over indices to define person_box and run keypoints
         for (int idx : nms_indices) {
             // Check if it's a person
@@ -226,8 +244,10 @@ int runner::run() {
 
                 // Run inference on the crop
                 //processAndRunBodyPose(model_input, person_box);
-				pose_runner.run(model_input, person_box);		
-	
+				if(!pose_runner.run(model_input, person_box)){
+					std::cout << "runnning inference on body pose failed" << std::endl;
+				}		
+				std::cout << "running body pose successfull" << std::endl;	
 				//Get the focal length from your scaled intrinsic matrix
                 float focal_length = static_cast<float>(geo.cameraMatrixScaled.at<double>(0, 0));
                 
@@ -242,7 +262,7 @@ int runner::run() {
                     bp_cfg_ptr->input_h,
                     geo.cameraMatrixScaled
                 );
-				
+				std::cout << "process body pose output successful" << std::endl;	
 				/* add log functionality back
                 // Log the final metric data
                 if (bp_ctx.poseFile.is_open()) {
@@ -277,6 +297,6 @@ int runner::run() {
 }
 
 
-runner::runner() : pose_runner(geo) {
+runner::runner() : pose_runner(geo), cap(0) {
     // The body can stay completely empty.
 }
