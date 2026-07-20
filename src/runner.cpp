@@ -225,7 +225,7 @@ int runner::run() {
 	}
 
 	std::cout << "Starting real-time production TensorRT 10 execution loop..." << std::endl;
-    cv::Mat frame, model_input;
+    cv::Mat frame, model_input, input_blob;
 	std::cout << "preloop" << std::endl;
 	while (cv::waitKey(1) != 27) { // Press ESC to terminate cleanly
         //std::cout << "Start loop " << std::endl;
@@ -237,8 +237,8 @@ int runner::run() {
 
 		//std::cout << "frame captured" << std::endl;
 
-        cv::resize(frame, model_input, peoplenet_resolution);
-        cv::Mat input_blob = preprocessFrame(frame, model_input, peoplenet_resolution);
+        //cv::resize(frame, model_input, peoplenet_resolution);
+        input_blob = preprocessFrame(frame, model_input, peoplenet_resolution);
 
 		//std::cout << "preprocess frame successful " << std::endl;
 
@@ -258,10 +258,8 @@ int runner::run() {
 
 		//std::cout << "decode detections successful" << std::endl;
         
-		// Render boxes first
-        
-		std::vector<int> nms_indices = applyNMSAndRender(model_input, *bb_cfg_ptr, bboxes, confidences, class_ids);
-   		
+		// Render bounding boxes
+        std::vector<int> nms_indices = applyNMSAndRender(model_input, *bb_cfg_ptr, bboxes, confidences, class_ids);   			
 		//std::cout << "nms_indices successful" << std::endl; 
         
 		// iterate over indices to define person_box and run keypoints
