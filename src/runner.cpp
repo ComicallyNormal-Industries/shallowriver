@@ -159,6 +159,8 @@ int runner::setup() {
 
 	calib_file = "res/calibration.yaml";
 
+	text_log_file = "res/3d_key_points.txt";
+
     if (!loadAndScaleIntrinsics(calib_file, stream_resolution, peoplenet_resolution, geo)) {
         std::cerr << "Warning: Could not load calibration data." << std::endl;
     }
@@ -183,6 +185,8 @@ int runner::setup() {
 		
     bb_ctx_ptr = bbox_runner.getContextPtr();
     bb_cfg_ptr = bbox_runner.getConfigPtr();
+
+	p_logger.initPoseLogger(text_log_file);
 	
 	return 1;	
 }
@@ -197,7 +201,7 @@ int runner::run() {
     cv::Mat frame, model_input;
 	std::cout << "preloop" << std::endl;
 	while (cv::waitKey(1) != 27) { // Press ESC to terminate cleanly
-        std::cout << "test" << std::endl;
+        //std::cout << "Start loop " << std::endl;
 		cap >> frame;
         if (frame.empty()) { 
 			std::cerr << "frame capture failed ... " << std::endl;
@@ -251,12 +255,14 @@ int runner::run() {
 				if(!pose_runner.run(model_input, person_box)){
 					std::cout << "runnning inference on body pose failed" << std::endl;
 				}		
-				std::cout << "running body pose successfull" << std::endl;	
+				//std::cout << "running body pose successfull" << std::endl;	
 				//Get the focal length from your scaled intrinsic matrix
                 float focal_length = static_cast<float>(geo.cameraMatrixScaled.at<double>(0, 0));
                 
                 // Process the coordinates using the true depth and un-cropped pixels
                 
+				std::cout << "crop size " << bp_cfg_ptr->input_w << " " << bp_cfg_ptr->input_h << std::endl;
+
 				std::vector<NvAR_Point3f> final3D = processBodyPoseOutput(
                     bp_ctx_ptr->h_pose25d, 
                     bp_ctx_ptr->h_pose3d, 
@@ -266,7 +272,18 @@ int runner::run() {
                     bp_cfg_ptr->input_h,
                     geo.cameraMatrixScaled
                 );
-				std::cout << "process body pose output successful" << std::endl;	
+				//std::cout << "process body pose output successful" << std::endl;	
+				/*test
+				for (int k = 0; k < bp_cfg_ptr->num_keypoints; ++k) {
+                        std::cout << "Keypoint_" << k << ": "
+                                        << final3D[k].x << ", "
+                                        << final3D[k].y << ", "
+                                        << final3D[k].z << std::endl;
+                    }
+
+				*/
+				p_logger.log_keypoints(final3D);
+
 				/* add log functionality back
                 // Log the final metric data
                 if (bp_ctx.poseFile.is_open()) {

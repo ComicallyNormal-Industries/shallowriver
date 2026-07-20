@@ -4,13 +4,10 @@
 #include <NvInfer.h>
 #include "bounding_box.hpp"
 #include "pose_estimation.hpp"
+#include "text_logger.hpp"
 
 struct TRTContext;
 struct ModelConfig;
-
-struct NvAR_Point3f {
-    float x, y, z;
-};
 
 class runner {
 
@@ -25,6 +22,8 @@ class runner {
 	    std::string bp_engine_file;
 
 		std::string calib_file;
+		std::string text_log_file;
+
 
 		CameraGeometry geo;
 
@@ -37,6 +36,7 @@ class runner {
 		bounding_box bbox_runner;
     	pose_estimation pose_runner;
 
+		pose_logger p_logger;
 
 
 		bool loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSize, cv::Size targetSize, CameraGeometry& outGeo);
