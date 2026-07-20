@@ -204,7 +204,7 @@ int runner::run() {
 			break;
 		}
 
-		std::cout << "frame captured" << std::endl;
+		//std::cout << "frame captured" << std::endl;
 
         cv::resize(frame, model_input, peoplenet_resolution);
         cv::Mat input_blob = preprocessFrame(frame, peoplenet_resolution);
@@ -216,7 +216,7 @@ int runner::run() {
 			return -1;
 		}
 
-		std::cout << "bounding box run successful" << std::endl;
+		//std::cout << "bounding box run successful" << std::endl;
 
         std::vector<cv::Rect> bboxes;
         std::vector<float> confidences;
@@ -226,11 +226,15 @@ int runner::run() {
 		
 		decodeDetections(*bb_ctx_ptr, *bb_cfg_ptr, bboxes, confidences, class_ids);        
 
-		std::cout << "decode detections successful" << std::endl;
-        // Render boxes first
-        std::vector<int> nms_indices = applyNMSAndRender(model_input, *bb_cfg_ptr, bboxes, confidences, class_ids);
-   		std::cout << "nms_indices successful" << std::endl; 
-        // iterate over indices to define person_box and run keypoints
+		//std::cout << "decode detections successful" << std::endl;
+        
+		// Render boxes first
+        
+		std::vector<int> nms_indices = applyNMSAndRender(model_input, *bb_cfg_ptr, bboxes, confidences, class_ids);
+   		
+		//std::cout << "nms_indices successful" << std::endl; 
+        
+		// iterate over indices to define person_box and run keypoints
         for (int idx : nms_indices) {
             // Check if it's a person
            	if (class_ids[idx] == 0) {
