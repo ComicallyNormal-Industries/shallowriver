@@ -108,6 +108,34 @@ std::vector<int> runner::applyNMSAndRender(cv::Mat& output_image, const ModelCon
     return nms_indices;
 }
 
+void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Rect& person_box, int input_w, int input_h, cv::Mat& out_blob, cv::Mat& out_t_form_inv) {
+    
+    cv::Point2f src_pts[3], dst_pts[3];
+    src_pts[0] = cv::Point2f(person_box.x, person_box.y);
+    src_pts[1] = cv::Point2f(person_box.x + person_box.width, person_box.y);
+    src_pts[2] = cv::Point2f(person_box.x, person_box.y + person_box.height);
+    
+    dst_pts[0] = cv::Point2f(0, 0);
+    dst_pts[1] = cv::Point2f(input_w, 0);
+    dst_pts[2] = cv::Point2f(0, input_h);
+
+    cv::Mat t_form = cv::getAffineTransform(src_pts, dst_pts);
+    cv::Mat t_form_3x3 = cv::Mat::eye(3, 3, CV_32F);
+    t_form.convertTo(t_form_3x3(cv::Rect(0, 0, 3, 2)), CV_32F);
+    
+    cv::Mat t_form_inv_double = t_form_3x3.inv(); 
+    
+    // Assign directly to the output reference
+    t_form_inv_double.convertTo(out_t_form_inv, CV_32F);
+    out_t_form_inv = out_t_form_inv.clone();
+
+    cv::Mat cropped_person;
+    cv::warpAffine(original_frame, cropped_person, t_form, cv::Size(input_w, input_h));
+    
+    // Assign directly to the output reference
+    out_blob = cv::dnn::blobFromImage(cropped_person, 1.0/255.0, cv::Size(), cv::Scalar(0,0,0), true, false);
+}
+
 std::vector<NvAR_Point3f> runner::processBodyPoseOutput(
     	const std::vector<float>& pose25d,
     	const std::vector<float>& pose3d_raw,
@@ -250,9 +278,15 @@ int runner::run() {
                 person_box.width = std::min(model_input.cols - person_box.x, person_box.width + 20);
                 person_box.height = std::min(model_input.rows - person_box.y, person_box.height + 20);
 
+				//cpu preprocessing
+				
+				cv::Mat blob;
+        		cv::Mat t_form_inv;
+				preprocessBodyPoseInput(model_input, person_box, bp_cfg_ptr->input_w, bp_cfg_ptr->input_h, blob, t_form_inv);
+
                 // Run inference on the crop
                 //processAndRunBodyPose(model_input, person_box);
-				if(!pose_runner.run(model_input, person_box)){
+				if(!pose_runner.run(blob, t_form_inv)){
 					std::cout << "runnning inference on body pose failed" << std::endl;
 				}		
 				//std::cout << "running body pose successfull" << std::endl;	
@@ -261,7 +295,7 @@ int runner::run() {
                 
                 // Process the coordinates using the true depth and un-cropped pixels
                 
-				std::cout << "crop size " << bp_cfg_ptr->input_w << " " << bp_cfg_ptr->input_h << std::endl;
+				//std::cout << "crop size " << bp_cfg_ptr->input_w << " " << bp_cfg_ptr->input_h << std::endl;
 
 				std::vector<NvAR_Point3f> final3D = processBodyPoseOutput(
                     bp_ctx_ptr->h_pose25d, 

@@ -72,7 +72,7 @@ class pose_estimation {
 
 		std::vector<char> loadEngineFile(const std::string& filename);
 		
-		void processAndRunBodyPose(const cv::Mat& original_frame, const cv::Rect& person_box);
+		void processAndRunBodyPose(const cv::Mat& blob, const cv::Mat& t_form_inv);
 
 		void cleanupBodyPose3D(BodyPoseContext& trt);
 
@@ -84,8 +84,8 @@ class pose_estimation {
 		int setup(std::string engine_file, std::string onnx_file, cv::Size targetSize, CameraGeometry& loaded_geo);
 
 		//add reference to output for return data
-		int run(cv::Mat& original_frame, cv::Rect& person_box);		
-
+		int run(const cv::Mat& blob, const cv::Mat& t_form_inv);
+	
 		BodyPoseContext* getContextPtr();
 		BodyPoseConfig* getConfigPtr();
 		

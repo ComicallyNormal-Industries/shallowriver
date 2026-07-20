@@ -148,6 +148,12 @@ bool pose_estimation::initializeBodyPose3D(const std::string& engine_file) {
     bp_ctx.context->setTensorAddress("pose25d", bp_ctx.d_pose25d);
     bp_ctx.context->setTensorAddress("pose3d", bp_ctx.d_pose3d);
 
+	cv::Mat k_inv_float;
+    this->geo.cameraMatrixInverse.convertTo(k_inv_float, CV_32F);
+    k_inv_float = k_inv_float.clone(); 
+
+    cudaMemcpyAsync(bp_ctx.d_k_inv, k_inv_float.ptr<float>(), 9 * sizeof(float), cudaMemcpyHostToDevice, bp_ctx.stream);
+
     cudaMemcpyAsync(bp_ctx.d_scale_norm_limb, bp_config.scale_normalized_mean_limb_lengths.data(), 36 * sizeof(float), cudaMemcpyHostToDevice, bp_ctx.stream);
     cudaMemcpyAsync(bp_ctx.d_mean_limb, bp_config.mean_limb_lengths.data(), 36 * sizeof(float), cudaMemcpyHostToDevice, bp_ctx.stream);
    	cudaStreamSynchronize(bp_ctx.stream);
@@ -165,42 +171,9 @@ std::vector<char> pose_estimation::loadEngineFile(const std::string& filename) {
     return buffer;
 }
 		
-void pose_estimation::processAndRunBodyPose(const cv::Mat& original_frame, const cv::Rect& person_box) {
-    
-    cv::Point2f src_pts[3], dst_pts[3];
-    src_pts[0] = cv::Point2f(person_box.x, person_box.y);
-    src_pts[1] = cv::Point2f(person_box.x + person_box.width, person_box.y);
-    src_pts[2] = cv::Point2f(person_box.x, person_box.y + person_box.height);
-    
-    dst_pts[0] = cv::Point2f(0, 0);
-    dst_pts[1] = cv::Point2f(bp_config.input_w, 0);
-    dst_pts[2] = cv::Point2f(0, bp_config.input_h);
-
-    //t_form_inv allocation and type precision ---
-    cv::Mat t_form = cv::getAffineTransform(src_pts, dst_pts);
-    cv::Mat t_form_3x3 = cv::Mat::eye(3, 3, CV_32F);
-    t_form.convertTo(t_form_3x3(cv::Rect(0, 0, 3, 2)), CV_32F);
-    
-    // Assign to a temporary cv::Mat first to resolve the expression
-    cv::Mat t_form_inv_double = t_form_3x3.inv(); 
-    
-    // Force the inverted matrix back to a continuous, 32-bit float layout
-    cv::Mat t_form_inv;
-    t_form_inv_double.convertTo(t_form_inv, CV_32F);
-    t_form_inv = t_form_inv.clone();
-
-    cv::Mat cropped_person;
-    cv::warpAffine(original_frame, cropped_person, t_form, cv::Size(bp_config.input_w, bp_config.input_h));
-    
-    cv::Mat blob = cv::dnn::blobFromImage(cropped_person, 1.0/255.0, cv::Size(), cv::Scalar(0,0,0), true, false);
-
-    //Fix k_inv layout continuity
-    cv::Mat k_inv_float;
-    geo.cameraMatrixInverse.convertTo(k_inv_float, CV_32F);
-    k_inv_float = k_inv_float.clone(); // Guarantees a continuous 9-element float array
-
+void pose_estimation::processAndRunBodyPose(const cv::Mat& blob, const cv::Mat& t_form_inv) {
+   
     cudaMemcpyAsync(bp_ctx.d_input0, blob.ptr<float>(), blob.total() * sizeof(float), cudaMemcpyHostToDevice, bp_ctx.stream);
-    cudaMemcpyAsync(bp_ctx.d_k_inv, k_inv_float.ptr<float>(), 9 * sizeof(float), cudaMemcpyHostToDevice, bp_ctx.stream);
     cudaMemcpyAsync(bp_ctx.d_t_form_inv, t_form_inv.ptr<float>(), 9 * sizeof(float), cudaMemcpyHostToDevice, bp_ctx.stream);
     
     // Run Inference First
@@ -247,16 +220,13 @@ int pose_estimation::setup(std::string engine_file, std::string onnx_file, cv::S
         return -1;
     }
 
-
-
-
 	std::cout << "body pose runner setup succesfull" << std::endl;
 	return 1;
 }
 
 //add reference to output data 
-int pose_estimation::run(cv::Mat& original_frame,cv::Rect& person_box){
-	processAndRunBodyPose(original_frame, person_box);
+int pose_estimation::run(const cv::Mat& blob, const cv::Mat& t_form_inv){
+	processAndRunBodyPose(blob, t_form_inv);
 	return 1;
 }
 
