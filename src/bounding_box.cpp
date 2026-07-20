@@ -181,7 +181,7 @@ int bounding_box::setup(std::string engine_file, std::string onnx_file, cv::Size
 
 int bounding_box::run(cv::Mat& input_blob){
 	runInference(input_blob);
-	printTRTContext();	
+	//printTRTContext();	
 	return 1;
 }
 
