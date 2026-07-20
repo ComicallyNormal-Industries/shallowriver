@@ -84,11 +84,13 @@ void runner::decodeDetections(const TRTContext& trt, const ModelConfig& cfg, std
     }
 }
 
-
-std::vector<int> runner::applyNMSAndRender(cv::Mat& output_image, const ModelConfig& cfg, const std::vector<cv::Rect>& bboxes, const std::vector<float>& confidences, const std::vector<int>& class_ids) {
+std::vector<int> runner::applyNMS(const ModelConfig& cfg, const std::vector<cv::Rect>& bboxes, const std::vector<float>& confidences) {
     std::vector<int> nms_indices;
     cv::dnn::NMSBoxes(bboxes, confidences, cfg.conf_threshold, cfg.nms_threshold, nms_indices);
+    return nms_indices;
+}
 
+void runner::renderDetections(cv::Mat& output_image, const ModelConfig& cfg, const std::vector<cv::Rect>& bboxes, const std::vector<float>& confidences, const std::vector<int>& class_ids, const std::vector<int>& nms_indices) {
     for (int idx : nms_indices) {
         cv::Rect box = bboxes[idx];
         int class_id = class_ids[idx];
@@ -99,14 +101,12 @@ std::vector<int> runner::applyNMSAndRender(cv::Mat& output_image, const ModelCon
         std::string label = cfg.class_labels[class_id] + ": " + cv::format("%.2f", score);
         int baseLine;
         cv::Size label_size = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
-        
+
         int top = std::max(box.y, label_size.height);
         cv::rectangle(output_image, cv::Point(box.x, top - label_size.height), cv::Point(box.x + label_size.width, top + baseLine), cfg.class_colors[class_id], cv::FILLED);
         cv::putText(output_image, label, cv::Point(box.x, top), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
     }
-    return nms_indices;
 }
-
 void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Rect& person_box, int input_w, int input_h, cv::Mat& out_blob, cv::Mat& out_t_form_inv) {
     
     cv::Point2f src_pts[3], dst_pts[3];
@@ -225,8 +225,20 @@ int runner::run() {
 	}
 
 	std::cout << "Starting real-time production TensorRT 10 execution loop..." << std::endl;
-    cv::Mat frame, model_input, input_blob;
-	std::cout << "preloop" << std::endl;
+    
+	//initialize all variables:
+	//frame input variables
+	cv::Mat frame, model_input, input_blob;
+    //bounding box variables
+	std::vector<cv::Rect> bboxes;
+    std::vector<float> confidences;
+    std::vector<int> class_ids;
+	std::vector<int> nms_indices;
+	//cpu preprocessing variables
+	cv::Mat blob;
+    cv::Mat t_form_inv;
+
+	//std::cout << "preloop" << std::endl;
 	while (cv::waitKey(1) != 27) { // Press ESC to terminate cleanly
         //std::cout << "Start loop " << std::endl;
 		cap >> frame;
@@ -251,15 +263,17 @@ int runner::run() {
 		//std::cout << "bounding box run successful" << std::endl;
 
 		//find bounding boxes from model output
-        std::vector<cv::Rect> bboxes;
-        std::vector<float> confidences;
-        std::vector<int> class_ids;
 		decodeDetections(*bb_ctx_ptr, *bb_cfg_ptr, bboxes, confidences, class_ids);        
 
 		//std::cout << "decode detections successful" << std::endl;
         
-		// Render bounding boxes
-        std::vector<int> nms_indices = applyNMSAndRender(model_input, *bb_cfg_ptr, bboxes, confidences, class_ids);   			
+		//clean up bounding boxes using nms algorithm
+        nms_indices = applyNMS(*bb_cfg_ptr, bboxes, confidences);
+        
+        //renders detected bounding boxes, disable if running headless
+        renderDetections(model_input, *bb_cfg_ptr, bboxes, confidences, class_ids, nms_indices);
+
+
 		//std::cout << "nms_indices successful" << std::endl; 
         
 		// iterate over indices to define person_box and run keypoints
@@ -275,8 +289,6 @@ int runner::run() {
                 person_box.height = std::min(model_input.rows - person_box.y, person_box.height + 20);
 
 				//cpu preprocessing				
-				cv::Mat blob;
-        		cv::Mat t_form_inv;
 				preprocessBodyPoseInput(model_input, person_box, bp_cfg_ptr->input_w, bp_cfg_ptr->input_h, blob, t_form_inv);
 
                 // Run inference on the crop
@@ -322,6 +334,10 @@ int runner::run() {
             }   
 		}
 		cv::imshow("Active TensorRT 10 Framework Output", model_input);
+		//clear vectors
+		bboxes.clear();
+        confidences.clear();
+        class_ids.clear();
 	}
 	//add de init
 	return 0;
