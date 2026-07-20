@@ -226,12 +226,14 @@ void pose_estimation::cleanupBodyPose3D(BodyPoseContext& trt) {
     if (trt.d_pose3d) cudaFree(trt.d_pose3d);
 }
 
-int pose_estimation::setup(std::string engine_file, std::string onnx_file, cv::Size targetSize){
+int pose_estimation::setup(std::string engine_file, std::string onnx_file, cv::Size targetSize, CameraGeometry& loaded_geo){
 	//load calibration data needed
 	//handle engine creation
 	//compileOnnxToEngine(onnx_file, engine_file, targetSize);
 	//initializeBodyPose3D(engine_file);
-	
+		
+	this->geo = loaded_geo;
+		
 	 if (access(engine_file.c_str(), F_OK) == -1) {
 		std::cout << "Notice: Compiled execution target file '" << engine_file << "' not found." << std::endl;
         if (!compileOnnxToEngine(onnx_file, engine_file, targetSize)) {

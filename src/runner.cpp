@@ -175,7 +175,7 @@ int runner::setup() {
 	}
 	
 	std::cout << "set up pose estimation runner" << std::endl;
-	if(!pose_runner.setup(bp_engine_file,bp_onnx_file, cv::Size(192, 256))){
+	if(!pose_runner.setup(bp_engine_file,bp_onnx_file, cv::Size(192, 256), geo)){
 		std::cout << "set up pose estimation runner failed" << std::endl;
 		return -1;
 	}	

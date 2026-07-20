@@ -81,7 +81,7 @@ class pose_estimation {
 		BodyPoseConfig bp_config;
 	    BodyPoseContext bp_ctx;
 
-		int setup(std::string engine_file, std::string onnx_file, cv::Size targetSize);
+		int setup(std::string engine_file, std::string onnx_file, cv::Size targetSize, CameraGeometry& loaded_geo);
 
 		//add reference to output for return data
 		int run(cv::Mat& original_frame, cv::Rect& person_box);		
