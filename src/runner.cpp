@@ -336,7 +336,7 @@ int runner::run() {
                     float ky_crop = bp_ctx_ptr->h_pose2d[k * 3 + 1];
                     float conf    = bp_ctx_ptr->h_pose2d[k * 3 + 2];
                     
-                    if (conf > 0.3f) {
+                    if (conf > 0.2f) {
                         int actual_x = person_box.x + static_cast<int>((kx_crop / bp_cfg_ptr->input_w) * person_box.width);
                         int actual_y = person_box.y + static_cast<int>((ky_crop / bp_cfg_ptr->input_h) * person_box.height);
                         
