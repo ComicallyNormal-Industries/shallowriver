@@ -6,6 +6,7 @@
 #include <cuda_runtime_api.h>
 #include <NvInfer.h>
 #include <NvOnnxParser.h>
+#include <unistd.h>
 
 struct CameraGeometry {
     cv::Mat cameraMatrixOrig;

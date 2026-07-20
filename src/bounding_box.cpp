@@ -165,7 +165,7 @@ int bounding_box::setup(std::string engine_file, std::string onnx_file, cv::Size
     if (access(engine_file.c_str(), F_OK) == -1) {
         std::cout << "Notice: Compiled execution target file '" << engine_file << "' not found." << std::endl;
         if (!compileOnnxToEngine(onnx_file, engine_file, targetSize)) {
-            std::cout << "compileing bounding box engine file faild" << std::endl;
+            std::cout << "compileing bounding box engine file failed" << std::endl;
 			return -1;
         }
     }

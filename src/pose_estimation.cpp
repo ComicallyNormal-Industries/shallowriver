@@ -229,8 +229,25 @@ void pose_estimation::cleanupBodyPose3D(BodyPoseContext& trt) {
 int pose_estimation::setup(std::string engine_file, std::string onnx_file, cv::Size targetSize){
 	//load calibration data needed
 	//handle engine creation
-	compileOnnxToEngine(onnx_file, engine_file, targetSize);
-	initializeBodyPose3D(engine_file);
+	//compileOnnxToEngine(onnx_file, engine_file, targetSize);
+	//initializeBodyPose3D(engine_file);
+	
+	 if (access(engine_file.c_str(), F_OK) == -1) {
+		std::cout << "Notice: Compiled execution target file '" << engine_file << "' not found." << std::endl;
+        if (!compileOnnxToEngine(onnx_file, engine_file, targetSize)) {
+			std::cout << "compileing body pose engine file failed" << std::endl;
+			return -1;
+		}
+    }
+
+	if (!initializeBodyPose3D(engine_file)) {
+        std::cerr << "Failed to initialize BodyPose3D engine." << std::endl;
+        return -1;
+    }
+
+
+
+
 	std::cout << "body pose runner setup succesfull" << std::endl;
 	return 1;
 }
