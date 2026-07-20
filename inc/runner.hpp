@@ -41,7 +41,7 @@ class runner {
 
 		bool loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSize, cv::Size targetSize, CameraGeometry& outGeo);
 
-		cv::Mat preprocessFrame(const cv::Mat& frame, cv::Size target_resolution);
+		cv::Mat preprocessFrame(const cv::Mat& frame, cv::Mat& out_model_input, cv::Size target_resolution);
 
 		void decodeDetections(const TRTContext& trt, const ModelConfig& cfg, std::vector<cv::Rect>& bboxes, std::vector<float>& confidences, std::vector<int>& class_ids);
 

@@ -28,10 +28,9 @@ bool runner::loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSi
     return true;
 }
 
-cv::Mat runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution) {
-    cv::Mat model_input;
-    cv::resize(frame, model_input, target_resolution);
-    return cv::dnn::blobFromImage(model_input, 1.0 / 255.0, target_resolution, cv::Scalar(0,0,0), true, false);
+cv::Mat runner::preprocessFrame(const cv::Mat& frame, cv::Mat& out_model_input, cv::Size target_resolution) {
+    cv::resize(frame, out_model_input, target_resolution);
+    return cv::dnn::blobFromImage(out_model_input, 1.0 / 255.0, target_resolution, cv::Scalar(0,0,0), true, false);
 }
 
 
@@ -239,10 +238,11 @@ int runner::run() {
 		//std::cout << "frame captured" << std::endl;
 
         cv::resize(frame, model_input, peoplenet_resolution);
-        cv::Mat input_blob = preprocessFrame(frame, peoplenet_resolution);
+        cv::Mat input_blob = preprocessFrame(frame, model_input, peoplenet_resolution);
 
-        //runInference(trt_ctx, input_blob);
-		//runInference(input_blob);
+		//std::cout << "preprocess frame successful " << std::endl;
+
+		//run inference on bounding box model
 		if(!bbox_runner.run(input_blob)){
 			std::cout << "running bounding box model failed" << std::endl;
 			return -1;
@@ -250,12 +250,10 @@ int runner::run() {
 
 		//std::cout << "bounding box run successful" << std::endl;
 
+		//find bounding boxes from model output
         std::vector<cv::Rect> bboxes;
         std::vector<float> confidences;
         std::vector<int> class_ids;
-
-        //decodeDetections(trt_ctx, config, bboxes, confidences, class_ids);
-		
 		decodeDetections(*bb_ctx_ptr, *bb_cfg_ptr, bboxes, confidences, class_ids);        
 
 		//std::cout << "decode detections successful" << std::endl;
@@ -278,8 +276,7 @@ int runner::run() {
                 person_box.width = std::min(model_input.cols - person_box.x, person_box.width + 20);
                 person_box.height = std::min(model_input.rows - person_box.y, person_box.height + 20);
 
-				//cpu preprocessing
-				
+				//cpu preprocessing				
 				cv::Mat blob;
         		cv::Mat t_form_inv;
 				preprocessBodyPoseInput(model_input, person_box, bp_cfg_ptr->input_w, bp_cfg_ptr->input_h, blob, t_form_inv);
@@ -290,13 +287,12 @@ int runner::run() {
 					std::cout << "runnning inference on body pose failed" << std::endl;
 				}		
 				//std::cout << "running body pose successfull" << std::endl;	
+
 				//Get the focal length from your scaled intrinsic matrix
                 float focal_length = static_cast<float>(geo.cameraMatrixScaled.at<double>(0, 0));
                 
                 // Process the coordinates using the true depth and un-cropped pixels
-                
 				//std::cout << "crop size " << bp_cfg_ptr->input_w << " " << bp_cfg_ptr->input_h << std::endl;
-
 				std::vector<NvAR_Point3f> final3D = processBodyPoseOutput(
                     bp_ctx_ptr->h_pose25d, 
                     bp_ctx_ptr->h_pose3d, 
@@ -307,29 +303,11 @@ int runner::run() {
                     geo.cameraMatrixScaled
                 );
 				//std::cout << "process body pose output successful" << std::endl;	
-				/*test
-				for (int k = 0; k < bp_cfg_ptr->num_keypoints; ++k) {
-                        std::cout << "Keypoint_" << k << ": "
-                                        << final3D[k].x << ", "
-                                        << final3D[k].y << ", "
-                                        << final3D[k].z << std::endl;
-                    }
-
-				*/
+			
+				//log 3d points to text file
 				p_logger.log_keypoints(final3D);
 
-				/* add log functionality back
-                // Log the final metric data
-                if (bp_ctx.poseFile.is_open()) {
-                    bp_ctx.poseFile << "--- Frame Start ---" << std::endl;
-                    for (int k = 0; k < bp_config.num_keypoints; ++k) {
-                        bp_ctx.poseFile << "Keypoint_" << k << ": " 
-                                        << final3D[k].x << ", " 
-                                        << final3D[k].y << ", " 
-                                        << final3D[k].z << std::endl;
-                    }
-                }		
-				*/
+	 
                 // Draw keypoints inside the person loop
                 for (int k = 0; k < bp_cfg_ptr->num_keypoints; ++k) {
                     float kx_crop = bp_ctx_ptr->h_pose2d[k * 3 + 0];
