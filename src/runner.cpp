@@ -153,20 +153,20 @@ std::vector<NvAR_Point3f> runner::processBodyPoseOutput(
     float cy = cameraMatrix.at<double>(1, 2);
 
     for (int k = 0; k < numKeypoints; ++k) {
-        // 1. Get raw crop pixels from 2.5D output
+        //Get raw crop pixels from 2.5D output
         float crop_x = pose25d[k * 4 + 0];
         float crop_y = pose25d[k * 4 + 1];
 
-        // 2. Map crop pixels back to full 960x544 frame
+        //Map crop pixels back to full 960x544 frame
         float scale_x = static_cast<float>(person_box.width) / crop_w;
         float scale_y = static_cast<float>(person_box.height) / crop_h;
         float full_x = person_box.x + (crop_x * scale_x);
         float full_y = person_box.y + (crop_y * scale_y);
 
-        // 3. Get the PERFECT Absolute Depth (Z) calculated by the GPU
+        //Get the Absolute Depth (Z) calculated by the GPU
         float z_abs = pose3d_raw[k * 3 + 2];
 
-        // 4. Standard Pinhole Camera Projection (Pixels -> Metric World Space)
+        //Standard Pinhole Camera Projection (Pixels -> Metric World Space)
         final_3d[k].x = (full_x - cx) * z_abs / fx;
         final_3d[k].y = (full_y - cy) * z_abs / fy;
         final_3d[k].z = z_abs;
@@ -297,11 +297,8 @@ int runner::run() {
 					std::cout << "runnning inference on body pose failed" << std::endl;
 				}		
 				//std::cout << "running body pose successfull" << std::endl;	
-
-				//Get the focal length from your scaled intrinsic matrix
-                float focal_length = static_cast<float>(geo.cameraMatrixScaled.at<double>(0, 0));
                 
-                // Process the coordinates using the true depth and un-cropped pixels
+				// Process the coordinates using the true depth and un-cropped pixels
 				//std::cout << "crop size " << bp_cfg_ptr->input_w << " " << bp_cfg_ptr->input_h << std::endl;
 				std::vector<NvAR_Point3f> final3D = processBodyPoseOutput(
                     bp_ctx_ptr->h_pose25d, 
@@ -324,7 +321,7 @@ int runner::run() {
                     float ky_crop = bp_ctx_ptr->h_pose2d[k * 3 + 1];
                     float conf    = bp_ctx_ptr->h_pose2d[k * 3 + 2];
                     
-                    if (conf > 0.2f) {
+                    if (conf > 0.3f) {
                         int actual_x = person_box.x + static_cast<int>((kx_crop / bp_cfg_ptr->input_w) * person_box.width);
                         int actual_y = person_box.y + static_cast<int>((ky_crop / bp_cfg_ptr->input_h) * person_box.height);
                         

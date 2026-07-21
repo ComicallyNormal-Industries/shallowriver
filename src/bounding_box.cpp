@@ -197,20 +197,20 @@ ModelConfig* bounding_box::getConfigPtr(){
 void bounding_box::printTRTContext() {
     std::cout << "=== TRTContext State ===" << std::endl;
 
-    // 1. TensorRT Smart Pointers (Check if they hold memory)
+    //TensorRT Smart Pointers (Check if they hold memory)
     std::cout << "Runtime:       " << (trt_ctx.runtime ? "Allocated" : "nullptr") << std::endl;
     std::cout << "Engine:        " << (trt_ctx.engine ? "Allocated" : "nullptr") << std::endl;
     std::cout << "Context:       " << (trt_ctx.context ? "Allocated" : "nullptr") << std::endl;
 
-    // 2. CUDA Stream
+    //CUDA Stream
     std::cout << "CUDA Stream:   " << trt_ctx.stream << std::endl;
 
-    // 3. GPU Device Pointers (Will print as hex memory addresses)
+    //GPU Device Pointers (Will print as hex memory addresses)
     std::cout << "d_input:       " << trt_ctx.d_input << std::endl;
     std::cout << "d_bbox:        " << trt_ctx.d_bbox << std::endl;
     std::cout << "d_cov:         " << trt_ctx.d_cov << std::endl;
 
-    // 4. Host Vectors (Print size and the first value as a sanity check)
+    //Host Vectors (Print size and the first value as a sanity check)
     std::cout << "h_bbox_output: " << trt_ctx.h_bbox_output.size() << " elements" << std::endl;
     if (!trt_ctx.h_bbox_output.empty()) {
         std::cout << "  └> [0]:      " << trt_ctx.h_bbox_output[0] << std::endl;
@@ -221,7 +221,7 @@ void bounding_box::printTRTContext() {
         std::cout << "  └> [0]:      " << trt_ctx.h_cov_output[0] << std::endl;
     }
 
-    // 5. Memory Metadata
+    //Memory Metadata
     std::cout << "Input Bytes:   " << trt_ctx.input_bytes << " bytes" << std::endl;
     std::cout << "========================" << std::endl;
 }
