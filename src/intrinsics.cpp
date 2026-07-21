@@ -139,6 +139,35 @@ int intrinsics::run_calibration() {
     fs.release();
 
     return 0;
+}
 
+int intrinsics::generate_charuco() {
+    std::cout << "Generating ChArUco board image..." << std::endl;
 
+    //Pull the same dictionary and board specs used for calibration
+    cv::aruco::Dictionary dictionary = cv::aruco::getPredefinedDictionary(ARUCO_DICT);
+    cv::aruco::CharucoBoard board(cv::Size(SQUARES_X, SQUARES_Y), SQUARE_LENGTH, MARKER_LENGTH, dictionary);
+
+    //Set output image resolution (scaling by 200 pixels per square for high print quality)
+    //cv::Size imageSize(SQUARES_X * 200, SQUARES_Y * 200);
+    cv::Size imageSize(2000,3000);
+	cv::Mat boardImage;
+
+    //Render the board (Image Size, Output Mat, Margin Size, Border Bits)
+    board.generateImage(imageSize, boardImage, 0, 1);
+
+    //Save to disk
+    if (cv::imwrite("charuco_board.png", boardImage)) {
+        std::cout << "Success! Saved 'charuco_board.png' to the current directory." << std::endl;
+        std::cout << "Please print this without scaling (100% scale) for accurate calibration." << std::endl;
+		std::cout << "Use the following size settings to print the image correctly: " << std::endl;
+		std::cout << "Target Width: 6.30 inches (exactly 160 mm)" << std::endl;
+		std::cout << "Target Height: 9.45 inches (exactly 240 mm)" << std::endl;
+		std::cout << "Measure the arduco markers to make sure they are 30mm x 30mm or the calibration wont work correctly " << std::endl;
+		std::cout << "It may be necessary to glue/tape the printed paper to a more rigid surface like cardbaord to keep the charuco board form deforming " << std::endl;
+        return 0;
+    } else {
+        std::cerr << "Error: Failed to write 'charuco_board.png'. Check folder permissions." << std::endl;
+        return -1;
+    }
 }

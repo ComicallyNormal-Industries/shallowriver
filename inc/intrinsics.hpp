@@ -6,4 +6,5 @@
 
 namespace intrinsics {
 	int run_calibration();
+	int generate_charuco();
 }

@@ -33,13 +33,17 @@ int main(int argc, char** argv) {
             return intrinsics::run_calibration();
         }
 		else if (mode == "--run" || mode == "--r"){
-			std::cout << "Running inference " << std::endl;
+			std::cout << "Running inference ..." << std::endl;
 			return run_inference();
 		}
 		else if (mode == "--help" || mode == "--h"){
 			display_help();
 			return 0;
 		}
+		else if (mode == "--generate" || mode == "--g") {
+            std::cout << "Running charuco board generator..." << std::endl;
+            return intrinsics::generate_charuco();
+        }
         else {
 			std::cerr << "Unknown argument: " << mode << "\n";
 			display_help();
