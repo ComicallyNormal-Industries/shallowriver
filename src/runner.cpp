@@ -108,31 +108,38 @@ void runner::renderDetections(cv::Mat& output_image, const ModelConfig& cfg, con
     }
 }
 void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Rect& person_box, int input_w, int input_h, cv::Mat& out_blob, cv::Mat& out_t_form_inv) {
-    
-    cv::Point2f src_pts[3], dst_pts[3];
-    src_pts[0] = cv::Point2f(person_box.x, person_box.y);
-    src_pts[1] = cv::Point2f(person_box.x + person_box.width, person_box.y);
-    src_pts[2] = cv::Point2f(person_box.x, person_box.y + person_box.height);
-    
-    dst_pts[0] = cv::Point2f(0, 0);
-    dst_pts[1] = cv::Point2f(input_w, 0);
-    dst_pts[2] = cv::Point2f(0, input_h);
+   
+	//Calculate the scale factor to preserve the aspect ratio
+    float scale = std::min(static_cast<float>(input_w) / person_box.width, 
+                           static_cast<float>(input_h) / person_box.height);
 
-    cv::Mat t_form = cv::getAffineTransform(src_pts, dst_pts);
+    //Calculate the centering offsets (this creates the black padding)
+    float scaled_w = person_box.width * scale;
+    float scaled_h = person_box.height * scale;
+    float dx = (input_w - scaled_w) / 2.0f;
+    float dy = (input_h - scaled_h) / 2.0f;
+
+    //Map the pixels from the original frame into the padded 192x256 target
+    cv::Mat t_form = (cv::Mat_<float>(2, 3) << 
+        scale, 0.0f, -person_box.x * scale + dx,
+        0.0f, scale, -person_box.y * scale + dy
+    );
+
+    //Create the 3x3 Inverse Transform Matrix for the GPU
     cv::Mat t_form_3x3 = cv::Mat::eye(3, 3, CV_32F);
-    t_form.convertTo(t_form_3x3(cv::Rect(0, 0, 3, 2)), CV_32F);
-    
+    t_form.copyTo(t_form_3x3(cv::Rect(0, 0, 3, 2))); 
+
     cv::Mat t_form_inv_double = t_form_3x3.inv(); 
-    
-    // Assign directly to the output reference
     t_form_inv_double.convertTo(out_t_form_inv, CV_32F);
     out_t_form_inv = out_t_form_inv.clone();
 
+    //warp the frame (OpenCV automatically pads empty space with black)
     cv::Mat cropped_person;
     cv::warpAffine(original_frame, cropped_person, t_form, cv::Size(input_w, input_h));
     
-    // Assign directly to the output reference
+    //Convert to tensor blob
     out_blob = cv::dnn::blobFromImage(cropped_person, 1.0/255.0, cv::Size(), cv::Scalar(0,0,0), true, false);
+
 }
 
 std::vector<NvAR_Point3f> runner::processBodyPoseOutput(
@@ -314,20 +321,28 @@ int runner::run() {
 				//log 3d points to text file
 				p_logger.log_keypoints(final3D);
 
-	 
-                // Draw keypoints inside the person loop
-                for (int k = 0; k < bp_cfg_ptr->num_keypoints; ++k) {
-                    float kx_crop = bp_ctx_ptr->h_pose2d[k * 3 + 0];
-                    float ky_crop = bp_ctx_ptr->h_pose2d[k * 3 + 1];
-                    float conf    = bp_ctx_ptr->h_pose2d[k * 3 + 2];
-                    
-                    if (conf > 0.3f) {
-                        int actual_x = person_box.x + static_cast<int>((kx_crop / bp_cfg_ptr->input_w) * person_box.width);
-                        int actual_y = person_box.y + static_cast<int>((ky_crop / bp_cfg_ptr->input_h) * person_box.height);
-                        
-                        cv::circle(model_input, cv::Point(actual_x, actual_y), 4, cv::Scalar(0, 255, 255), -1);
-                    }
-                }
+	 			// Draw keypoints inside the person loop
+        		for (int k = 0; k < bp_cfg_ptr->num_keypoints; ++k) {
+            		float kx_crop = bp_ctx_ptr->h_pose2d[k * 3 + 0]; // X coordinate inside the 192x256 crop
+            		float ky_crop = bp_ctx_ptr->h_pose2d[k * 3 + 1]; // Y coordinate inside the 192x256 crop
+            		float conf    = bp_ctx_ptr->h_pose2d[k * 3 + 2];
+            
+            		// Bumped confidence to 0.5f to hide AI hallucinations during occlusion
+            		if (conf > 0.5f) {
+                		// Map the 192x256 crop pixels back to the original image frame
+                		// using the inverse affine matrix we generated in the preprocessor
+                		int actual_x = static_cast<int>(t_form_inv.at<float>(0, 0) * kx_crop + 
+                                                t_form_inv.at<float>(0, 1) * ky_crop + 
+                                                t_form_inv.at<float>(0, 2));
+
+                		int actual_y = static_cast<int>(t_form_inv.at<float>(1, 0) * kx_crop + 
+                                                t_form_inv.at<float>(1, 1) * ky_crop + 
+                                                t_form_inv.at<float>(1, 2));
+                
+                	cv::circle(model_input, cv::Point(actual_x, actual_y), 4, cv::Scalar(0, 255, 255), -1);
+            		}
+        		}
+				
             }   
 		}
 		cv::imshow("Active TensorRT 10 Framework Output", model_input);
