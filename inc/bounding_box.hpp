@@ -53,7 +53,7 @@ class bounding_box {
 		ModelConfig config;
 		TRTContext trt_ctx;
 
-		int setup(std::string engine_file, std::string onnx_file, cv::Size targetSize);
+		int setup(std::string engine_file, std::string onnx_file, cv::Size targetSize, bool rebuild);
 		int run(cv::Mat& input_blob);
 
 		TRTContext* getContextPtr();

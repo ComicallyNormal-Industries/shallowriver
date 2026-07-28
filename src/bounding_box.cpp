@@ -75,7 +75,7 @@ bool bounding_box::compileOnnxToEngine(const std::string& onnxPath, const std::s
         }
     }
 
-    		// Assign the profile if it was requested. If not needed, builder ownership handles cleanup.
+    // Assign the profile if it was requested. If not needed, builder ownership handles cleanup.
     if (hasDynamic) {
         config->addOptimizationProfile(profile);
     }
@@ -167,10 +167,10 @@ void bounding_box::cleanupTRT() {
     if (trt_ctx.d_cov) cudaFree(trt_ctx.d_cov);
 }
 
-int bounding_box::setup(std::string engine_file, std::string onnx_file, cv::Size targetSize){
+int bounding_box::setup(std::string engine_file, std::string onnx_file, cv::Size targetSize, bool rebuild){
 
 	    // Check & Compile Engine PeopleNet
-    if (access(engine_file.c_str(), F_OK) == -1) {
+    if (access(engine_file.c_str(), F_OK) == -1 || rebuild) {
         std::cout << "Notice: Compiled execution target file '" << engine_file << "' not found." << std::endl;
         if (!compileOnnxToEngine(onnx_file, engine_file, targetSize)) {
             std::cout << "compileing bounding box engine file failed" << std::endl;

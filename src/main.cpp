@@ -3,12 +3,12 @@
 #include <iostream>
 #include <string>    
 
-int run_inference(){
+int run_inference(int operating_mode){
     //Instantiate your runner class
     runner model_runner;
 
     //Run inference runner, Return the integer exit code
-    int exit_code = model_runner.run();
+    int exit_code = model_runner.run(operating_mode);
 
     std::cout << "shallowriver shutting down with code: " << exit_code << std::endl;
  	return exit_code;
@@ -34,7 +34,7 @@ int main(int argc, char** argv) {
         }
 		else if (mode == "--run" || mode == "--r"){
 			std::cout << "Running inference ..." << std::endl;
-			return run_inference();
+			return run_inference(1);
 		}
 		else if (mode == "--help" || mode == "--h"){
 			display_help();
@@ -44,6 +44,9 @@ int main(int argc, char** argv) {
             std::cout << "Running charuco board generator..." << std::endl;
             return intrinsics::generate_charuco();
         }
+		else if (mode == "--engine" || mode == "--e"){
+			return run_inference(2);	
+		}
         else {
 			std::cerr << "Unknown argument: " << mode << "\n";
 			display_help();

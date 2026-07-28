@@ -183,8 +183,11 @@ std::vector<NvAR_Point3f> runner::processBodyPoseOutput(
     return final_3d;
 }
 
-int runner::setup() {
-
+int runner::setup(int mode) {
+	bool rebuild = false;
+	if (mode == 2){
+		rebuild = true;
+	}
     stream_resolution = cv::Size(1920, 1080);
     peoplenet_resolution = cv::Size(960, 544);
     bb_onnx_file = "res/resnet34_peoplenet.onnx";
@@ -199,18 +202,20 @@ int runner::setup() {
     if (!loadAndScaleIntrinsics(calib_file, stream_resolution, peoplenet_resolution, geo)) {
         std::cerr << "Warning: Could not load calibration data." << std::endl;
     }
-	//cap.open(0);	
+		
+	cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));	
     cap.set(cv::CAP_PROP_FRAME_WIDTH, stream_resolution.width);
     cap.set(cv::CAP_PROP_FRAME_HEIGHT, stream_resolution.height);
-	
+	cap.set(cv::CAP_PROP_FPS, 30);
+
 	std::cout << "set up bounding box runner" << std::endl;
-	if(!bbox_runner.setup(bb_engine_file,bb_onnx_file, peoplenet_resolution)){
+	if(!bbox_runner.setup(bb_engine_file,bb_onnx_file, peoplenet_resolution, rebuild)){
 		std::cout << "set up bounding box runner failed" << std::endl;
 		return -1;
 	}
 
 	std::cout << "set up pose estimation runner" << std::endl;
-	if(!pose_runner.setup(bp_engine_file,bp_onnx_file, cv::Size(192, 256), geo)){
+	if(!pose_runner.setup(bp_engine_file,bp_onnx_file, cv::Size(192, 256), geo, rebuild)){
 		std::cout << "set up pose estimation runner failed" << std::endl;
 		return -1;
 	}	
@@ -226,170 +231,205 @@ int runner::setup() {
 	return 1;	
 }
 
-int runner::run() {
-	if(!setup()){
-		std::cout << "runner setup failed" << std::endl;
-		return -1;
-	}
+#include <chrono>
+#include <iostream>
+#include <iomanip>
+#include <thread>
 
-	std::cout << "Starting real-time production TensorRT 10 execution loop..." << std::endl;
+int runner::run(int mode) {
+    if(!setup(mode)){
+        std::cout << "runner setup failed" << std::endl;
+        return -1;
+    }
+
+    std::cout << "Starting real-time production TensorRT 10 execution loop..." << std::endl;
     
-	//initialize all variables:
-	//frame input variables
-	cv::Mat frame, model_input, input_blob;
-    //bounding box variables
-	std::vector<cv::Rect> bboxes;
+    // Frame & processing variables
+    cv::Mat frame, model_input, input_blob;
+    std::vector<cv::Rect> bboxes;
     std::vector<float> confidences;
     std::vector<int> class_ids;
-	std::vector<int> nms_indices;
-	//cpu preprocessing variables
-	cv::Mat blob;
-    cv::Mat t_form_inv;
+    std::vector<int> nms_indices;
+    cv::Mat blob, t_form_inv;
 
-	//std::cout << "preloop" << std::endl;
-	while (cv::waitKey(1) != 27) { // Press ESC to terminate cleanly
-        //std::cout << "Start loop " << std::endl;
-		cap >> frame;
+    // --- Profiling Accumulators (in milliseconds) ---
+    double acc_cap = 0.0, acc_prep_bb = 0.0, acc_infer_bb = 0.0, acc_post_bb = 0.0;
+    double acc_prep_pose = 0.0, acc_infer_pose = 0.0, acc_post_pose = 0.0;
+    double acc_render_show = 0.0;
+    int profile_frame_count = 0;
+    const int PROFILE_INTERVAL = 30; // Print statistics every 30 frames
+
+    while (cv::waitKey(1) != 27) { // Press ESC to terminate cleanly
+
+        // 1. Camera Frame Capture Time
+        auto t0 = std::chrono::high_resolution_clock::now();
+        cap >> frame;
+        auto t1 = std::chrono::high_resolution_clock::now();
         if (frame.empty()) { 
-			std::cerr << "frame capture failed ... " << std::endl;
-			break;
-		}
+            std::cerr << "frame capture failed ... " << std::endl;
+            break;
+        }
 
-		//std::cout << "frame captured" << std::endl;
+        // FPS Calculation
+        auto current_time = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<float> elapsed = current_time - last_frame_time;
+        last_frame_time = current_time;
+        float raw_fps = (elapsed.count() > 0.0f) ? (1.0f / elapsed.count()) : 0.0f;
+        current_fps = (current_fps * 0.9f) + (raw_fps * 0.1f);
+        std::string fps_text = "FPS: " + std::to_string(static_cast<int>(current_fps));
 
-		auto current_time = std::chrono::high_resolution_clock::now();
-		std::chrono::duration<float> elapsed = current_time - last_frame_time;
-		last_frame_time = current_time;
-
-		// 2. Calculate raw FPS (protect against divide-by-zero on the very first frame)
-		float raw_fps = 0.0f;
-		if (elapsed.count() > 0.0f) {
-    		raw_fps = 1.0f / elapsed.count();
-		}
-
-		// 3. Smooth the FPS using an Exponential Moving Average (so the text doesn't flicker wildly)
-		current_fps = (current_fps * 0.9f) + (raw_fps * 0.1f);
-
-		// Create the text string (e.g., "FPS: 30")
-		std::string fps_text = "FPS: " + std::to_string(static_cast<int>(current_fps));
-
-
-        //cv::resize(frame, model_input, peoplenet_resolution);
+        // 2. Bounding Box Preprocessing Time
+        auto t2 = std::chrono::high_resolution_clock::now();
         input_blob = preprocessFrame(frame, model_input, peoplenet_resolution);
+        auto t3 = std::chrono::high_resolution_clock::now();
 
-		//std::cout << "preprocess frame successful " << std::endl;
+        // 3. Bounding Box Inference Time
+        if(!bbox_runner.run(input_blob)){
+            std::cout << "running bounding box model failed" << std::endl;
+            return -1;
+        }
+        auto t4 = std::chrono::high_resolution_clock::now();
 
-		//run inference on bounding box model
-		if(!bbox_runner.run(input_blob)){
-			std::cout << "running bounding box model failed" << std::endl;
-			return -1;
-		}
-
-		//std::cout << "bounding box run successful" << std::endl;
-
-		//find bounding boxes from model output
-		decodeDetections(*bb_ctx_ptr, *bb_cfg_ptr, bboxes, confidences, class_ids);        
-
-		//std::cout << "decode detections successful" << std::endl;
-        
-		//clean up bounding boxes using nms algorithm
+        // 4. Bounding Box Decoding & NMS Time
+        decodeDetections(*bb_ctx_ptr, *bb_cfg_ptr, bboxes, confidences, class_ids);        
         nms_indices = applyNMS(*bb_cfg_ptr, bboxes, confidences);
-        
-        //renders detected bounding boxes, disable if running headless
         renderDetections(model_input, *bb_cfg_ptr, bboxes, confidences, class_ids, nms_indices);
+        auto t5 = std::chrono::high_resolution_clock::now();
 
+        // 5. Pose Estimation Loop Time
+        double frame_prep_pose = 0.0;
+        double frame_infer_pose = 0.0;
+        double frame_post_pose = 0.0;
 
-		//std::cout << "nms_indices successful" << std::endl; 
-        
-		// iterate over indices to define person_box and run keypoints
         for (int idx : nms_indices) {
-            // Check if it's a person
-           	if (class_ids[idx] == 0) {
+            if (class_ids[idx] == 0) { // Check if it's a person
                 cv::Rect person_box = bboxes[idx];
                 
-                // Keep the box within frame boundaries
                 person_box.x = std::max(0, person_box.x - 10);
                 person_box.y = std::max(0, person_box.y - 10);
                 person_box.width = std::min(model_input.cols - person_box.x, person_box.width + 20);
                 person_box.height = std::min(model_input.rows - person_box.y, person_box.height + 20);
 
-				//cpu preprocessing				
-				preprocessBodyPoseInput(model_input, person_box, bp_cfg_ptr->input_w, bp_cfg_ptr->input_h, blob, t_form_inv);
+                // Pose Preprocess
+                auto tp0 = std::chrono::high_resolution_clock::now();
+                preprocessBodyPoseInput(model_input, person_box, bp_cfg_ptr->input_w, bp_cfg_ptr->input_h, blob, t_form_inv);
+                auto tp1 = std::chrono::high_resolution_clock::now();
 
-                // Run inference on the crop
-                //processAndRunBodyPose(model_input, person_box);
-				if(!pose_runner.run(blob, t_form_inv)){
-					std::cout << "runnning inference on body pose failed" << std::endl;
-				}		
-				//std::cout << "running body pose successfull" << std::endl;	
+                // Pose Inference
+                if(!pose_runner.run(blob, t_form_inv)){
+                    std::cout << "running inference on body pose failed" << std::endl;
+                }        
+                auto tp2 = std::chrono::high_resolution_clock::now();
+
+                // Pose Postprocess & Logging
+                std::vector<NvAR_Point3f> final_3d = processBodyPoseOutput(
+                    bp_ctx_ptr->d_pose25d,
+                    bp_ctx_ptr->d_pose3d,
+                    pose_runner.bp_config.num_keypoints,
+                    person_box,
+                    pose_runner.bp_config.input_w,
+                    pose_runner.bp_config.input_h,
+                    pose_runner.geo.cameraMatrixOrig
+                );
+
+                p_logger.log_keypoints(final_3d);
+
+                for (int k = 0; k < bp_cfg_ptr->num_keypoints; ++k) {
+                    float kx_crop = bp_ctx_ptr->d_pose2d[k * 3 + 0];
+                    float ky_crop = bp_ctx_ptr->d_pose2d[k * 3 + 1];
+                    float conf    = bp_ctx_ptr->d_pose2d[k * 3 + 2];        
+    
+                    if (conf > 0.5f) {
+                        int actual_x = static_cast<int>(t_form_inv.at<float>(0, 0) * kx_crop + 
+                                                        t_form_inv.at<float>(0, 1) * ky_crop + 
+                                                        t_form_inv.at<float>(0, 2));
+
+                        int actual_y = static_cast<int>(t_form_inv.at<float>(1, 0) * kx_crop + 
+                                                        t_form_inv.at<float>(1, 1) * ky_crop + 
+                                                        t_form_inv.at<float>(1, 2));
                 
-				// Process the coordinates using the true depth and un-cropped pixels
-				//std::cout << "crop size " << bp_cfg_ptr->input_w << " " << bp_cfg_ptr->input_h << std::endl;
-				
-				// Change this block in runner.cpp (around line 312):
-				std::vector<NvAR_Point3f> final_3d = processBodyPoseOutput(
-    				bp_ctx_ptr->d_pose25d,  // FIXED: Added the missing 'b'
-    				bp_ctx_ptr->d_pose3d,   // FIXED: Removed the incorrect "pose_runner." prefix
-    				pose_runner.bp_config.num_keypoints,
-    				person_box,
-    				pose_runner.bp_config.input_w,
-    				pose_runner.bp_config.input_h,
-    				pose_runner.geo.cameraMatrixOrig
-				);
+                        cv::circle(model_input, cv::Point(actual_x, actual_y), 4, cv::Scalar(0, 255, 255), -1);
+                    }
+                }
+                auto tp3 = std::chrono::high_resolution_clock::now();
 
-				//std::cout << "process body pose output successful" << std::endl;	
-			
-				//log 3d points to text file
-				p_logger.log_keypoints(final_3d);
-
-	 			// Draw keypoints inside the person loop
-        		for (int k = 0; k < bp_cfg_ptr->num_keypoints; ++k) {
-					float kx_crop = bp_ctx_ptr->d_pose2d[k * 3 + 0]; // FIXED: h_ -> d_
-    				float ky_crop = bp_ctx_ptr->d_pose2d[k * 3 + 1]; // FIXED: h_ -> d_
-    				float conf    = bp_ctx_ptr->d_pose2d[k * 3 + 2]; // FIXED: h_ -> d_			
-	
-            		// Bumped confidence to 0.5f to hide AI hallucinations during occlusion
-            		if (conf > 0.5f) {
-                		// Map the 192x256 crop pixels back to the original image frame
-                		// using the inverse affine matrix we generated in the preprocessor
-                		int actual_x = static_cast<int>(t_form_inv.at<float>(0, 0) * kx_crop + 
-                                                t_form_inv.at<float>(0, 1) * ky_crop + 
-                                                t_form_inv.at<float>(0, 2));
-
-                		int actual_y = static_cast<int>(t_form_inv.at<float>(1, 0) * kx_crop + 
-                                                t_form_inv.at<float>(1, 1) * ky_crop + 
-                                                t_form_inv.at<float>(1, 2));
-                
-                	cv::circle(model_input, cv::Point(actual_x, actual_y), 4, cv::Scalar(0, 255, 255), -1);
-            		}
-        		}
-				
+                frame_prep_pose  += std::chrono::duration<double, std::milli>(tp1 - tp0).count();
+                frame_infer_pose += std::chrono::duration<double, std::milli>(tp2 - tp1).count();
+                frame_post_pose  += std::chrono::duration<double, std::milli>(tp3 - tp2).count();
             }   
-		}
+        }
+        auto t6 = std::chrono::high_resolution_clock::now();
 
-		cv::putText(
-    		model_input,
-    		fps_text, 
-    		cv::Point(15, 40),           
-    		cv::FONT_HERSHEY_SIMPLEX,    
-    		1.0,                         
-    		cv::Scalar(0, 255, 0),       
-    		2                            
-		);
+        // 6. Text Rendering & GUI Display Time
+        cv::putText(
+            model_input,
+            fps_text, 
+            cv::Point(15, 40),           
+            cv::FONT_HERSHEY_SIMPLEX,    
+            1.0,                         
+            cv::Scalar(0, 255, 0),       
+            2                            
+        );
 
-		//display frame
-		cv::imshow("Active TensorRT 10 Framework Output", model_input);
-	
-		//clear vectors
-		bboxes.clear();
+        cv::imshow("Active TensorRT 10 Framework Output", model_input);
+        auto t7 = std::chrono::high_resolution_clock::now();
+
+        // --- Accumulate durations ---
+        acc_cap         += std::chrono::duration<double, std::milli>(t1 - t0).count();
+        acc_prep_bb     += std::chrono::duration<double, std::milli>(t3 - t2).count();
+        acc_infer_bb    += std::chrono::duration<double, std::milli>(t4 - t3).count();
+        acc_post_bb     += std::chrono::duration<double, std::milli>(t5 - t4).count();
+        acc_prep_pose   += frame_prep_pose;
+        acc_infer_pose  += frame_infer_pose;
+        acc_post_pose   += frame_post_pose;
+        acc_render_show += std::chrono::duration<double, std::milli>(t7 - t6).count();
+
+        profile_frame_count++;
+
+        // --- Print Breakdown Summary Every 30 Frames ---
+        if (profile_frame_count >= PROFILE_INTERVAL) {
+            double avg_cap         = acc_cap / PROFILE_INTERVAL;
+            double avg_prep_bb     = acc_prep_bb / PROFILE_INTERVAL;
+            double avg_infer_bb    = acc_infer_bb / PROFILE_INTERVAL;
+            double avg_post_bb     = acc_post_bb / PROFILE_INTERVAL;
+            double avg_prep_pose   = acc_prep_pose / PROFILE_INTERVAL;
+            double avg_infer_pose  = acc_infer_pose / PROFILE_INTERVAL;
+            double avg_post_pose   = acc_post_pose / PROFILE_INTERVAL;
+            double avg_render_show = acc_render_show / PROFILE_INTERVAL;
+            double total_frame_ms  = avg_cap + avg_prep_bb + avg_infer_bb + avg_post_bb + 
+                                     avg_prep_pose + avg_infer_pose + avg_post_pose + avg_render_show;
+
+            std::cout << "\n================ [ PIPELINE TIMING REPORT ] ================\n"
+                      << std::fixed << std::setprecision(2)
+                      << " 1. Camera Capture (cap >> frame):      " << std::setw(6) << avg_cap         << " ms\n"
+                      << " 2. BBox Preprocessing (CPU):           " << std::setw(6) << avg_prep_bb     << " ms\n"
+                      << " 3. BBox Inference (GPU):               " << std::setw(6) << avg_infer_bb    << " ms\n"
+                      << " 4. BBox Postprocessing (Decode/NMS):   " << std::setw(6) << avg_post_bb     << " ms\n"
+                      << " 5. Pose Preprocessing (Crop/Warp):     " << std::setw(6) << avg_prep_pose   << " ms\n"
+                      << " 6. Pose Inference (GPU):               " << std::setw(6) << avg_infer_pose  << " ms\n"
+                      << " 7. Pose Postprocess & Disk Logging:    " << std::setw(6) << avg_post_pose   << " ms\n"
+                      << " 8. GUI Render & Display (imshow):      " << std::setw(6) << avg_render_show << " ms\n"
+                      << "------------------------------------------------------------\n"
+                      << " TOTAL AVG FRAME TIME:                  " << std::setw(6) << total_frame_ms  << " ms "
+                      << "(" << (1000.0 / total_frame_ms) << " FPS)\n"
+                      << "============================================================\n" << std::endl;
+
+            // Reset accumulators
+            acc_cap = acc_prep_bb = acc_infer_bb = acc_post_bb = 0.0;
+            acc_prep_pose = acc_infer_pose = acc_post_pose = 0.0;
+            acc_render_show = 0.0;
+            profile_frame_count = 0;
+        }
+
+        // Clear vectors
+        bboxes.clear();
         confidences.clear();
         class_ids.clear();
-	}
-	//add de init
-	return 0;
+    }
+
+    return 0;
 }
 
-
-runner::runner() : pose_runner(geo), cap(0) {
+runner::runner() : pose_runner(geo), cap(0, cv::CAP_V4L2) {
     // The body can stay completely empty.
 }

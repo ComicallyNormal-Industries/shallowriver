@@ -84,7 +84,7 @@ bool pose_estimation::compileOnnxToEngine(const std::string& onnxPath, const std
 
     config->setMemoryPoolLimit(nvinfer1::MemoryPoolType::kWORKSPACE, 1ULL << 30);
 
-    // Let the builder auto-optimize target arrays internally via strongly typed layout constraints
+	// Let the builder auto-optimize target arrays internally via strongly typed layout constraints
     std::cout << "Hardware mapping validation initialized..." << std::endl;
 
     nvinfer1::IHostMemory* serializedModel = builder->buildSerializedNetwork(*network, *config);
@@ -194,7 +194,7 @@ void pose_estimation::cleanupBodyPose3D(BodyPoseContext& trt) {
     if (trt.d_pose3d) cudaFree(trt.d_pose3d);
 }
 
-int pose_estimation::setup(std::string engine_file, std::string onnx_file, cv::Size targetSize, CameraGeometry& loaded_geo){
+int pose_estimation::setup(std::string engine_file, std::string onnx_file, cv::Size targetSize, CameraGeometry& loaded_geo, bool rebuild){
 	//load calibration data needed
 	//handle engine creation
 	//compileOnnxToEngine(onnx_file, engine_file, targetSize);
@@ -202,7 +202,7 @@ int pose_estimation::setup(std::string engine_file, std::string onnx_file, cv::S
 		
 	this->geo = loaded_geo;
 		
-	 if (access(engine_file.c_str(), F_OK) == -1) {
+	 if (access(engine_file.c_str(), F_OK) == -1 || rebuild) {
 		std::cout << "Notice: Compiled execution target file '" << engine_file << "' not found." << std::endl;
         if (!compileOnnxToEngine(onnx_file, engine_file, targetSize)) {
 			std::cout << "compileing body pose engine file failed" << std::endl;

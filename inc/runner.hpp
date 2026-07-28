@@ -57,10 +57,10 @@ class runner {
 		// Inside inc/runner.hpp
 		std::vector<NvAR_Point3f> processBodyPoseOutput(const float* pose25d, const float* pose3d_raw, int numKeypoints, const cv::Rect& person_box, int crop_w, int crop_h, const cv::Mat& cameraMatrix);
 
-		int setup();
+		int setup(int mode);
 
 	public:
 
-		int run();
+		int run(int mode);
 		runner();
 };
