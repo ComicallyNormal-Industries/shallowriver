@@ -13,7 +13,9 @@ bool bounding_box::compileOnnxToEngine(const std::string& onnxPath, const std::s
 	if (!builder) return false;
 
 	// Use strongly typed network configurations (TensorRT 10 native pattern)
-	uint32_t flags = 1U << static_cast<uint32_t>(nvinfer1::NetworkDefinitionCreationFlag::kSTRONGLY_TYPED);
+	//uint32_t flags = 1U << static_cast<uint32_t>(nvinfer1::NetworkDefinitionCreationFlag::kSTRONGLY_TYPED);
+	uint32_t flags = 0;	
+	//nvinfer1::INetworkDefinition* network = builder->createNetworkV2(flags);
 	nvinfer1::INetworkDefinition* network = builder->createNetworkV2(flags);
 	nvonnxparser::IParser* parser = nvonnxparser::createParser(*network, gLogger);
 
@@ -81,6 +83,13 @@ bool bounding_box::compileOnnxToEngine(const std::string& onnxPath, const std::s
     }
 
     config->setMemoryPoolLimit(nvinfer1::MemoryPoolType::kWORKSPACE, 1ULL << 30);
+
+	if (builder->platformHasFastFp16()) {
+        config->setFlag(nvinfer1::BuilderFlag::kFP16);
+        std::cout << "FP16 Hardware detected. Enabling FP16 optimization." << std::endl;
+    } else {
+        std::cout << "Warning: FP16 not supported on this device. Using FP32." << std::endl;
+    }
 
     // Let the builder auto-optimize target arrays internally via strongly typed layout constraints
     std::cout << "Hardware mapping validation initialized..." << std::endl;

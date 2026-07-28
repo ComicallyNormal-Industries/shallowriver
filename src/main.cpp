@@ -19,6 +19,7 @@ void display_help(){
 	std::cerr << "--calibrate --c: run camera intrinsics calibration " << "\n";
 	std::cerr << "--run --r: run inference " << "\n"; 
 	std::cerr << "--help --h: display help " << "\n";
+	std::cerr << "--engine --e: recompile .engine files " << "\n";
 }
 
 int main(int argc, char** argv) {
