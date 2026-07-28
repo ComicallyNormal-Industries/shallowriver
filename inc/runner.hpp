@@ -5,6 +5,7 @@
 #include "bounding_box.hpp"
 #include "pose_estimation.hpp"
 #include "text_logger.hpp"
+#include <chrono>
 
 struct TRTContext;
 struct ModelConfig;
@@ -38,6 +39,8 @@ class runner {
 
 		pose_logger p_logger;
 
+		std::chrono::high_resolution_clock::time_point last_frame_time;
+    	float current_fps = 0.0f;
 
 		bool loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSize, cv::Size targetSize, CameraGeometry& outGeo);
 

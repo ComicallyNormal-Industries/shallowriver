@@ -208,7 +208,7 @@ int runner::setup() {
 		std::cout << "set up bounding box runner failed" << std::endl;
 		return -1;
 	}
-	
+
 	std::cout << "set up pose estimation runner" << std::endl;
 	if(!pose_runner.setup(bp_engine_file,bp_onnx_file, cv::Size(192, 256), geo)){
 		std::cout << "set up pose estimation runner failed" << std::endl;
@@ -256,6 +256,23 @@ int runner::run() {
 		}
 
 		//std::cout << "frame captured" << std::endl;
+
+		auto current_time = std::chrono::high_resolution_clock::now();
+		std::chrono::duration<float> elapsed = current_time - last_frame_time;
+		last_frame_time = current_time;
+
+		// 2. Calculate raw FPS (protect against divide-by-zero on the very first frame)
+		float raw_fps = 0.0f;
+		if (elapsed.count() > 0.0f) {
+    		raw_fps = 1.0f / elapsed.count();
+		}
+
+		// 3. Smooth the FPS using an Exponential Moving Average (so the text doesn't flicker wildly)
+		current_fps = (current_fps * 0.9f) + (raw_fps * 0.1f);
+
+		// Create the text string (e.g., "FPS: 30")
+		std::string fps_text = "FPS: " + std::to_string(static_cast<int>(current_fps));
+
 
         //cv::resize(frame, model_input, peoplenet_resolution);
         input_blob = preprocessFrame(frame, model_input, peoplenet_resolution);
@@ -349,7 +366,20 @@ int runner::run() {
 				
             }   
 		}
+
+		cv::putText(
+    		model_input,
+    		fps_text, 
+    		cv::Point(15, 40),           
+    		cv::FONT_HERSHEY_SIMPLEX,    
+    		1.0,                         
+    		cv::Scalar(0, 255, 0),       
+    		2                            
+		);
+
+		//display frame
 		cv::imshow("Active TensorRT 10 Framework Output", model_input);
+	
 		//clear vectors
 		bboxes.clear();
         confidences.clear();
