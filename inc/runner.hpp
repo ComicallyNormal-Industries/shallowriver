@@ -51,7 +51,8 @@ class runner {
 
 		void preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Rect& person_box, int input_w, int input_h, cv::Mat& out_blob, cv::Mat& out_t_form_inv);
 
-		std::vector<NvAR_Point3f> processBodyPoseOutput(const std::vector<float>& pose25d, const std::vector<float>& pose3d_raw, int numKeypoints, const cv::Rect& person_box, int crop_w, int crop_h, const cv::Mat& cameraMatrix);
+		// Inside inc/runner.hpp
+		std::vector<NvAR_Point3f> processBodyPoseOutput(const float* pose25d, const float* pose3d_raw, int numKeypoints, const cv::Rect& person_box, int crop_w, int crop_h, const cv::Mat& cameraMatrix);
 
 		int setup();
 

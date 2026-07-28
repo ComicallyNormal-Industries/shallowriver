@@ -35,15 +35,17 @@ cv::Mat runner::preprocessFrame(const cv::Mat& frame, cv::Mat& out_model_input, 
 
 
 void runner::decodeDetections(const TRTContext& trt, const ModelConfig& cfg, std::vector<cv::Rect>& bboxes, std::vector<float>& confidences, std::vector<int>& class_ids) {
-    			
-	int stride_spatial = cfg.grid_h * cfg.grid_w;
+
+    int stride_spatial = cfg.grid_h * cfg.grid_w;
 
     for (int c = 0; c < cfg.num_classes; ++c) {
         for (int y = 0; y < cfg.grid_h; ++y) {
             for (int x = 0; x < cfg.grid_w; ++x) {
-                
+
                 int cov_offset = (c * stride_spatial) + (y * cfg.grid_w) + x;
-                float confidence = trt.h_cov_output[cov_offset];
+                
+                // FIXED: Reading confidence directly from the Unified Memory pointer
+                float confidence = trt.d_cov[cov_offset];
 
                 if (confidence >= cfg.conf_threshold) {
                     int base_bbox_class = (c * 4);
@@ -52,14 +54,14 @@ void runner::decodeDetections(const TRTContext& trt, const ModelConfig& cfg, std
                     int idx_x2 = ((base_bbox_class + 2) * stride_spatial) + (y * cfg.grid_w) + x;
                     int idx_y2 = ((base_bbox_class + 3) * stride_spatial) + (y * cfg.grid_w) + x;
 
-                   	float dx1 = trt.h_bbox_output[idx_x1];
-                    float dy1 = trt.h_bbox_output[idx_y1];
-                    float dx2 = trt.h_bbox_output[idx_x2];
-                    float dy2 = trt.h_bbox_output[idx_y2];
+                    // FIXED: Reading bounding box coordinates directly from Unified Memory
+                    float dx1 = trt.d_bbox[idx_x1];
+                    float dy1 = trt.d_bbox[idx_y1];
+                    float dx2 = trt.d_bbox[idx_x2];
+                    float dy2 = trt.d_bbox[idx_y2];
 
                     float cell_center_x = static_cast<float>(x) * cfg.stride_x + 0.5f;
                     float cell_center_y = static_cast<float>(y) * cfg.stride_y + 0.5f;
-
                     float x1 = cell_center_x - (dx1 * cfg.bbox_norm_x);
                     float y1 = cell_center_y - (dy1 * cfg.bbox_norm_y);
                     float x2 = cell_center_x + (dx2 * cfg.bbox_norm_x);
@@ -77,7 +79,7 @@ void runner::decodeDetections(const TRTContext& trt, const ModelConfig& cfg, std
                         bboxes.push_back(cv::Rect(static_cast<int>(x1), static_cast<int>(y1), static_cast<int>(width), static_cast<int>(height)));
                         confidences.push_back(confidence);
                         class_ids.push_back(c);
-                   	}
+                    }
                 }
             }
         }
@@ -107,6 +109,7 @@ void runner::renderDetections(cv::Mat& output_image, const ModelConfig& cfg, con
         cv::putText(output_image, label, cv::Point(box.x, top), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
     }
 }
+
 void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Rect& person_box, int input_w, int input_h, cv::Mat& out_blob, cv::Mat& out_t_form_inv) {
    
 	//Calculate the scale factor to preserve the aspect ratio
@@ -142,16 +145,17 @@ void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Re
 
 }
 
+// CHANGED: The first two arguments are now const float* instead of const std::vector<float>&
 std::vector<NvAR_Point3f> runner::processBodyPoseOutput(
-    	const std::vector<float>& pose25d,
-    	const std::vector<float>& pose3d_raw,
-    	int numKeypoints,
-    	const cv::Rect& person_box,
-    	int crop_w,
-		int crop_h,
-    	const cv::Mat& cameraMatrix) {
-	
-	std::vector<NvAR_Point3f> final_3d(numKeypoints);
+        const float* pose25d,
+        const float* pose3d_raw,
+        int numKeypoints,
+        const cv::Rect& person_box,
+        int crop_w,
+        int crop_h,
+        const cv::Mat& cameraMatrix) {
+
+    std::vector<NvAR_Point3f> final_3d(numKeypoints);
 
     // Extract Camera Intrinsics
     float fx = cameraMatrix.at<double>(0, 0);
@@ -160,20 +164,17 @@ std::vector<NvAR_Point3f> runner::processBodyPoseOutput(
     float cy = cameraMatrix.at<double>(1, 2);
 
     for (int k = 0; k < numKeypoints; ++k) {
-        //Get raw crop pixels from 2.5D output
+        // The array access works exactly the same on the raw pointers!
         float crop_x = pose25d[k * 4 + 0];
         float crop_y = pose25d[k * 4 + 1];
 
-        //Map crop pixels back to full 960x544 frame
         float scale_x = static_cast<float>(person_box.width) / crop_w;
         float scale_y = static_cast<float>(person_box.height) / crop_h;
         float full_x = person_box.x + (crop_x * scale_x);
         float full_y = person_box.y + (crop_y * scale_y);
 
-        //Get the Absolute Depth (Z) calculated by the GPU
         float z_abs = pose3d_raw[k * 3 + 2];
 
-        //Standard Pinhole Camera Projection (Pixels -> Metric World Space)
         final_3d[k].x = (full_x - cx) * z_abs / fx;
         final_3d[k].y = (full_y - cy) * z_abs / fy;
         final_3d[k].z = z_abs;
@@ -307,26 +308,29 @@ int runner::run() {
                 
 				// Process the coordinates using the true depth and un-cropped pixels
 				//std::cout << "crop size " << bp_cfg_ptr->input_w << " " << bp_cfg_ptr->input_h << std::endl;
-				std::vector<NvAR_Point3f> final3D = processBodyPoseOutput(
-                    bp_ctx_ptr->h_pose25d, 
-                    bp_ctx_ptr->h_pose3d, 
-                    bp_cfg_ptr->num_keypoints, 
-                    person_box,
-                    bp_cfg_ptr->input_w,
-                    bp_cfg_ptr->input_h,
-                    geo.cameraMatrixScaled
-                );
+				
+				// Change this block in runner.cpp (around line 312):
+				std::vector<NvAR_Point3f> final_3d = processBodyPoseOutput(
+    				bp_ctx_ptr->d_pose25d,  // FIXED: Added the missing 'b'
+    				bp_ctx_ptr->d_pose3d,   // FIXED: Removed the incorrect "pose_runner." prefix
+    				pose_runner.bp_config.num_keypoints,
+    				person_box,
+    				pose_runner.bp_config.input_w,
+    				pose_runner.bp_config.input_h,
+    				pose_runner.geo.cameraMatrixOrig
+				);
+
 				//std::cout << "process body pose output successful" << std::endl;	
 			
 				//log 3d points to text file
-				p_logger.log_keypoints(final3D);
+				p_logger.log_keypoints(final_3d);
 
 	 			// Draw keypoints inside the person loop
         		for (int k = 0; k < bp_cfg_ptr->num_keypoints; ++k) {
-            		float kx_crop = bp_ctx_ptr->h_pose2d[k * 3 + 0]; // X coordinate inside the 192x256 crop
-            		float ky_crop = bp_ctx_ptr->h_pose2d[k * 3 + 1]; // Y coordinate inside the 192x256 crop
-            		float conf    = bp_ctx_ptr->h_pose2d[k * 3 + 2];
-            
+					float kx_crop = bp_ctx_ptr->d_pose2d[k * 3 + 0]; // FIXED: h_ -> d_
+    				float ky_crop = bp_ctx_ptr->d_pose2d[k * 3 + 1]; // FIXED: h_ -> d_
+    				float conf    = bp_ctx_ptr->d_pose2d[k * 3 + 2]; // FIXED: h_ -> d_			
+	
             		// Bumped confidence to 0.5f to hide AI hallucinations during occlusion
             		if (conf > 0.5f) {
                 		// Map the 192x256 crop pixels back to the original image frame

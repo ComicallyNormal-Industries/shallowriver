@@ -28,17 +28,13 @@ struct TRTContext {
     std::unique_ptr<nvinfer1::ICudaEngine> engine;
     std::unique_ptr<nvinfer1::IExecutionContext> context;
     cudaStream_t stream;
-    
-    void* d_input = nullptr;
-    void* d_bbox = nullptr;
-    void* d_cov = nullptr;
-    
-    std::vector<float> h_bbox_output;
-    std::vector<float> h_cov_output;
+
+	float* d_input = nullptr;
+    float* d_bbox = nullptr;
+    float* d_cov = nullptr;
+
     size_t input_bytes;
 };
-
-
 
 class bounding_box {
 	private:

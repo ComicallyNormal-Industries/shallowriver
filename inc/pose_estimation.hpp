@@ -40,31 +40,23 @@ struct BodyPoseConfig {
 };
 	
 struct BodyPoseContext {
-	std::unique_ptr<nvinfer1::IRuntime> runtime;
-	std::unique_ptr<nvinfer1::ICudaEngine> engine;
-	std::unique_ptr<nvinfer1::IExecutionContext> context;
-	cudaStream_t stream;
-    
-	// Inputs
-	void *d_input0 = nullptr, *d_k_inv = nullptr, *d_t_form_inv = nullptr;
-	void *d_scale_norm_limb = nullptr, *d_mean_limb = nullptr;
-    
-	// Outputs
-	void *d_pose2d = nullptr, *d_pose2d_org = nullptr, *d_pose25d = nullptr, *d_pose3d = nullptr;
-    
-	// Host buffers for outputs (Batch size of 1 for simplicity in this loop)
-	std::vector<float> h_pose3d; 
-	std::vector<float> h_pose2d_org;
-	std::vector<float> h_pose2d;
-	std::vector<float> h_pose25d;
+    std::unique_ptr<nvinfer1::IRuntime> runtime;
+    std::unique_ptr<nvinfer1::ICudaEngine> engine;
+    std::unique_ptr<nvinfer1::IExecutionContext> context;
+    cudaStream_t stream;
 
-	//std::ofstream poseFile;
+    // Inputs changed to float*
+    float *d_input0 = nullptr, *d_k_inv = nullptr, *d_t_form_inv = nullptr;
+    float *d_scale_norm_limb = nullptr, *d_mean_limb = nullptr;
+
+    // Outputs changed to float*
+    float *d_pose2d = nullptr, *d_pose2d_org = nullptr, *d_pose25d = nullptr, *d_pose3d = nullptr;
+
+    // Host buffers for outputs completely removed!
 };
 
 class pose_estimation {
 	private:
-
-		CameraGeometry geo;
 
 		bool compileOnnxToEngine(const std::string& onnxPath, const std::string& enginePath, cv::Size targetSize);
 
@@ -77,6 +69,8 @@ class pose_estimation {
 		void cleanupBodyPose3D(BodyPoseContext& trt);
 
 	public:
+
+		 CameraGeometry geo;
 
 		BodyPoseConfig bp_config;
 	    BodyPoseContext bp_ctx;

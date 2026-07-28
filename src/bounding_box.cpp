@@ -121,22 +121,27 @@ std::vector<char> bounding_box::loadEngineFile(const std::string& filename) {
 }
 
 bool bounding_box::initializeTRT(const std::string& engine_file, const cv::Size& resolution) {
-	std::vector<char> engine_data = loadEngineFile(engine_file);
- 	if (engine_data.empty()) return false;
+    std::vector<char> engine_data = loadEngineFile(engine_file);
+    if (engine_data.empty()) return false;
 
-	trt_ctx.runtime.reset(nvinfer1::createInferRuntime(gLogger));
-   	trt_ctx.engine.reset(trt_ctx.runtime->deserializeCudaEngine(engine_data.data(), engine_data.size()));
+    trt_ctx.runtime.reset(nvinfer1::createInferRuntime(gLogger));
+    trt_ctx.engine.reset(trt_ctx.runtime->deserializeCudaEngine(engine_data.data(), engine_data.size()));
     trt_ctx.context.reset(trt_ctx.engine->createExecutionContext());
 
-    trt_ctx.h_bbox_output.resize(1 * (config.num_classes * 4) * config.grid_h * config.grid_w); 
-    trt_ctx.h_cov_output.resize(1 * config.num_classes * config.grid_h * config.grid_w);
-    trt_ctx.input_bytes = 1 * 3 * resolution.height * resolution.width * sizeof(float);
+    // 1. Calculate the required number of elements for your outputs
+    size_t bbox_elements = 1 * (config.num_classes * 4) * config.grid_h * config.grid_w;
+    size_t cov_elements = 1 * config.num_classes * config.grid_h * config.grid_w;
     
-    cudaMalloc(&trt_ctx.d_input, trt_ctx.input_bytes);
-    cudaMalloc(&trt_ctx.d_bbox, trt_ctx.h_bbox_output.size() * sizeof(float));
-    cudaMalloc(&trt_ctx.d_cov, trt_ctx.h_cov_output.size() * sizeof(float));
+    trt_ctx.input_bytes = 1 * 3 * resolution.height * resolution.width * sizeof(float);
+
+    // 2. Allocate Unified Memory directly into the struct's pointers
+    cudaMallocManaged((void**)&trt_ctx.d_input, trt_ctx.input_bytes);
+    cudaMallocManaged((void**)&trt_ctx.d_bbox, bbox_elements * sizeof(float));
+    cudaMallocManaged((void**)&trt_ctx.d_cov, cov_elements * sizeof(float));
+    
     cudaStreamCreate(&trt_ctx.stream);
 
+    // 3. Set the tensor addresses for TensorRT
     trt_ctx.context->setTensorAddress("input_1:0", trt_ctx.d_input);
     trt_ctx.context->setTensorAddress("output_bbox/BiasAdd:0", trt_ctx.d_bbox);
     trt_ctx.context->setTensorAddress("output_cov/Sigmoid:0", trt_ctx.d_cov);
@@ -145,10 +150,13 @@ bool bounding_box::initializeTRT(const std::string& engine_file, const cv::Size&
 }
 
 void bounding_box::runInference(const cv::Mat& input_blob) {
-	cudaMemcpyAsync(trt_ctx.d_input, input_blob.ptr<float>(), trt_ctx.input_bytes, cudaMemcpyHostToDevice, trt_ctx.stream);
-	trt_ctx.context->enqueueV3(trt_ctx.stream);
-  	cudaMemcpyAsync(trt_ctx.h_bbox_output.data(), trt_ctx.d_bbox, trt_ctx.h_bbox_output.size() * sizeof(float), cudaMemcpyDeviceToHost, trt_ctx.stream);
-    cudaMemcpyAsync(trt_ctx.h_cov_output.data(), trt_ctx.d_cov, trt_ctx.h_cov_output.size() * sizeof(float), cudaMemcpyDeviceToHost, trt_ctx.stream);
+    // 1. Copy the image data from the OpenCV Mat directly into unified memory
+    std::memcpy(trt_ctx.d_input, input_blob.ptr<float>(), trt_ctx.input_bytes);
+
+    // 2. Tell TensorRT to run the network
+    trt_ctx.context->enqueueV3(trt_ctx.stream);
+
+    // 3. CRITICAL: Force the CPU to wait until the GPU is completely finished
     cudaStreamSynchronize(trt_ctx.stream);
 }
 
@@ -197,35 +205,36 @@ ModelConfig* bounding_box::getConfigPtr(){
 void bounding_box::printTRTContext() {
     std::cout << "=== TRTContext State ===" << std::endl;
 
-    //TensorRT Smart Pointers (Check if they hold memory)
+    // TensorRT Smart Pointers (Check if they hold memory)
     std::cout << "Runtime:       " << (trt_ctx.runtime ? "Allocated" : "nullptr") << std::endl;
     std::cout << "Engine:        " << (trt_ctx.engine ? "Allocated" : "nullptr") << std::endl;
     std::cout << "Context:       " << (trt_ctx.context ? "Allocated" : "nullptr") << std::endl;
 
-    //CUDA Stream
+    // CUDA Stream
     std::cout << "CUDA Stream:   " << trt_ctx.stream << std::endl;
 
-    //GPU Device Pointers (Will print as hex memory addresses)
+    // GPU Device Pointers (Will print as hex memory addresses)
     std::cout << "d_input:       " << trt_ctx.d_input << std::endl;
     std::cout << "d_bbox:        " << trt_ctx.d_bbox << std::endl;
     std::cout << "d_cov:         " << trt_ctx.d_cov << std::endl;
 
-    //Host Vectors (Print size and the first value as a sanity check)
-    std::cout << "h_bbox_output: " << trt_ctx.h_bbox_output.size() << " elements" << std::endl;
-    if (!trt_ctx.h_bbox_output.empty()) {
-        std::cout << "  └> [0]:      " << trt_ctx.h_bbox_output[0] << std::endl;
+    // Unified Memory (Print the first value as a sanity check directly from the pointer)
+    if (trt_ctx.d_bbox != nullptr) {
+        std::cout << "  └> d_bbox[0]: " << trt_ctx.d_bbox[0] << std::endl;
+    } else {
+        std::cout << "  └> d_bbox is nullptr" << std::endl;
     }
 
-    std::cout << "h_cov_output:  " << trt_ctx.h_cov_output.size() << " elements" << std::endl;
-    if (!trt_ctx.h_cov_output.empty()) {
-        std::cout << "  └> [0]:      " << trt_ctx.h_cov_output[0] << std::endl;
+    if (trt_ctx.d_cov != nullptr) {
+        std::cout << "  └> d_cov[0]:  " << trt_ctx.d_cov[0] << std::endl;
+    } else {
+        std::cout << "  └> d_cov is nullptr" << std::endl;
     }
 
-    //Memory Metadata
+    // Memory Metadata
     std::cout << "Input Bytes:   " << trt_ctx.input_bytes << " bytes" << std::endl;
     std::cout << "========================" << std::endl;
 }
-
 
 bounding_box::bounding_box(){
 	;
