@@ -160,8 +160,8 @@ bool bounding_box::initializeTRT(const std::string& engine_file, const cv::Size&
 
 void bounding_box::runInference(const cv::Mat& input_blob) {
     // 1. Copy the image data from the OpenCV Mat directly into unified memory
-    std::memcpy(trt_ctx.d_input, input_blob.ptr<float>(), trt_ctx.input_bytes);
-
+    //std::memcpy(trt_ctx.d_input, input_blob.ptr<float>(), trt_ctx.input_bytes);
+	cudaMemcpy(trt_ctx.d_input, input_blob.ptr<float>(), trt_ctx.input_bytes, cudaMemcpyDefault);
     // 2. Tell TensorRT to run the network
     trt_ctx.context->enqueueV3(trt_ctx.stream);
 

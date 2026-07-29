@@ -6,6 +6,29 @@
 #include "pose_estimation.hpp"
 #include "text_logger.hpp"
 #include <chrono>
+#include <thread>
+#include <atomic>
+#include "bounded_queue.hpp"
+
+struct FramePacket {
+    uint64_t frame_id;
+    cv::Mat raw_frame;
+};
+
+struct BBoxPacket {
+    uint64_t frame_id;
+    cv::Mat raw_frame;
+    cv::Mat model_input;
+    std::vector<cv::Rect> bboxes;
+    std::vector<float> confidences;
+    std::vector<int> class_ids;
+    std::vector<int> nms_indices;
+};
+
+struct RenderPacket {
+    uint64_t frame_id;
+    cv::Mat final_frame;
+};
 
 struct TRTContext;
 struct ModelConfig;
@@ -42,12 +65,14 @@ class runner {
 		std::chrono::high_resolution_clock::time_point last_frame_time;
     	float current_fps = 0.0f;
 
+		std::atomic<bool> running{true};
+
 		bool loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSize, cv::Size targetSize, CameraGeometry& outGeo);
 
 		cv::Mat preprocessFrame(const cv::Mat& frame, cv::Mat& out_model_input, cv::Size target_resolution);
 
-		void decodeDetections(const TRTContext& trt, const ModelConfig& cfg, std::vector<cv::Rect>& bboxes, std::vector<float>& confidences, std::vector<int>& class_ids);
-
+		void decodeDetections(const std::vector<float>& safe_cov, const std::vector<float>& safe_bbox, const ModelConfig& cfg, std::vector<cv::Rect>& bboxes, std::vector<float>& confidences, std::vector<int>& class_ids);
+		
 		std::vector<int> applyNMS( const ModelConfig& cfg, const std::vector<cv::Rect>& bboxes, const std::vector<float>& confidences);
 
 		void renderDetections(cv::Mat& output_image, const ModelConfig& cfg, const std::vector<cv::Rect>& bboxes, const std::vector<float>& confidences, const std::vector<int>& class_ids, const std::vector<int>& nms_indices);
@@ -59,7 +84,16 @@ class runner {
 
 		int setup(int mode);
 
-	public:
+		BoundedQueue<FramePacket>  q1_2{3};
+    	BoundedQueue<BBoxPacket>   q2_3{3};
+    	BoundedQueue<RenderPacket> q3_4{3};
+
+		void stage1_capture();
+    	void stage2_bbox();
+    	void stage3_pose();
+    	void stage4_output();
+	
+		public:
 
 		int run(int mode);
 		runner();

@@ -163,9 +163,13 @@ bool pose_estimation::initializeBodyPose3D(const std::string& engine_file) {
     k_inv_float = k_inv_float.clone();
 
     // 3. Use standard std::memcpy to populate static Unified Memory (No cudaMemcpyAsync needed)
-    std::memcpy(bp_ctx.d_k_inv, k_inv_float.ptr<float>(), 9 * sizeof(float));
-    std::memcpy(bp_ctx.d_scale_norm_limb, bp_config.scale_normalized_mean_limb_lengths.data(), 36 * sizeof(float));
-    std::memcpy(bp_ctx.d_mean_limb, bp_config.mean_limb_lengths.data(), 36 * sizeof(float));
+    //std::memcpy(bp_ctx.d_k_inv, k_inv_float.ptr<float>(), 9 * sizeof(float));
+    //std::memcpy(bp_ctx.d_scale_norm_limb, bp_config.scale_normalized_mean_limb_lengths.data(), 36 * sizeof(float));
+    //std::memcpy(bp_ctx.d_mean_limb, bp_config.mean_limb_lengths.data(), 36 * sizeof(float));
+	cudaMemcpy(bp_ctx.d_k_inv, k_inv_float.ptr<float>(), 9 * sizeof(float), cudaMemcpyDefault);
+    cudaMemcpy(bp_ctx.d_scale_norm_limb, bp_config.scale_normalized_mean_limb_lengths.data(), 36 * sizeof(float), cudaMemcpyDefault);
+    cudaMemcpy(bp_ctx.d_mean_limb, bp_config.mean_limb_lengths.data(), 36 * sizeof(float), cudaMemcpyDefault);
+
 
     return true;
 }
@@ -182,8 +186,10 @@ std::vector<char> pose_estimation::loadEngineFile(const std::string& filename) {
 		
 void pose_estimation::processAndRunBodyPose(const cv::Mat& blob, const cv::Mat& t_form_inv) {
     // 1. Write dynamic frame data directly to unified memory
-    std::memcpy(bp_ctx.d_input0, blob.ptr<float>(), blob.total() * sizeof(float));
-    std::memcpy(bp_ctx.d_t_form_inv, t_form_inv.ptr<float>(), 9 * sizeof(float));
+    //std::memcpy(bp_ctx.d_input0, blob.ptr<float>(), blob.total() * sizeof(float));
+    //std::memcpy(bp_ctx.d_t_form_inv, t_form_inv.ptr<float>(), 9 * sizeof(float));
+	cudaMemcpy(bp_ctx.d_input0, blob.ptr<float>(), blob.total() * sizeof(float), cudaMemcpyDefault);
+    cudaMemcpy(bp_ctx.d_t_form_inv, t_form_inv.ptr<float>(), 9 * sizeof(float), cudaMemcpyDefault);
 
     // 2. Run Inference
     bp_ctx.context->enqueueV3(bp_ctx.stream);
