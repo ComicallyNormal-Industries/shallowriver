@@ -193,16 +193,25 @@ void runner::stage1_capture() {
             break;
         }
         // CRITICAL FIX: Clone the frame so the capture thread doesn't overwrite it
-        if (!q1_2.push({frame_counter++, frame.clone()})) break;
+        // if (!q1_2.produce({frame_counter++, frame.clone()})) break;
+        q1_2.produce_update([&](FramePacket& data) {
+            data.frame_id = frame_counter++;
+            // Reuses the buffer inside data.image if the size/type matches
+            frame.copyTo(data.raw_frame); 
+        });
     }
-    q1_2.stop();
+    // q1_2.stop();
 }
 
 // --- STAGE 2: Model 1 (PeopleNet Bounding Box) ---
 void runner::stage2_bbox() {
     cudaSetDevice(0); // Bind CUDA context
     FramePacket in;
-    while (q1_2.pop(in)) {
+    // while (q1_2.pop(in)) {
+    while (true) {
+
+        in = *q1_2.wait_and_consume();
+
         cv::Mat model_input, input_blob;
         input_blob = preprocessFrame(in.raw_frame, model_input, peoplenet_resolution);
         
@@ -337,7 +346,7 @@ void runner::stage4_output() {
             running = false;
             
             // Stop queues to unblock sleeping threads
-            q1_2.stop();
+            // q1_2.stop();
             q2_3.stop();
             q3_4.stop();
             break;

@@ -30,8 +30,32 @@ struct RenderPacket {
     cv::Mat final_frame;
 };
 
-struct TRTContext;
-struct ModelConfig;
+struct bb_context_in
+{
+	float* d_input = nullptr;
+	size_t input_bytes;
+};
+
+struct bb_context_out
+{
+	float* d_bbox = nullptr;
+    float* d_cov = nullptr;
+	size_t input_bytes;
+};
+
+struct bp_context_in
+{
+	// Inputs changed to float*
+    float *d_input0 = nullptr, *d_k_inv = nullptr, *d_t_form_inv = nullptr;
+    float *d_scale_norm_limb = nullptr, *d_mean_limb = nullptr;
+};
+
+struct bp_context_out
+{
+	// Outputs changed to float*
+    float *d_pose2d = nullptr, *d_pose2d_org = nullptr, *d_pose25d = nullptr, *d_pose3d = nullptr;
+};
+
 
 class runner {
 
@@ -84,7 +108,7 @@ class runner {
 
 		int setup(int mode);
 
-		BoundedQueue<FramePacket>  q1_2{3};
+		SPSCLatestValue<FramePacket>  q1_2{};
     	BoundedQueue<BBoxPacket>   q2_3{3};
     	BoundedQueue<RenderPacket> q3_4{3};
 

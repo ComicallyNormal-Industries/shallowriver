@@ -45,12 +45,12 @@ struct BodyPoseContext {
     std::unique_ptr<nvinfer1::IExecutionContext> context;
     cudaStream_t stream;
 
-    // Inputs changed to float*
-    float *d_input0 = nullptr, *d_k_inv = nullptr, *d_t_form_inv = nullptr;
-    float *d_scale_norm_limb = nullptr, *d_mean_limb = nullptr;
+    // // Inputs changed to float*
+    // float *d_input0 = nullptr, *d_k_inv = nullptr, *d_t_form_inv = nullptr;
+    // float *d_scale_norm_limb = nullptr, *d_mean_limb = nullptr;
 
-    // Outputs changed to float*
-    float *d_pose2d = nullptr, *d_pose2d_org = nullptr, *d_pose25d = nullptr, *d_pose3d = nullptr;
+    // // Outputs changed to float*
+    // float *d_pose2d = nullptr, *d_pose2d_org = nullptr, *d_pose25d = nullptr, *d_pose3d = nullptr;
 
     // Host buffers for outputs completely removed!
 };
