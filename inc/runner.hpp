@@ -91,7 +91,7 @@ class runner {
 
 		int setup(int mode);
 
-		SPSCLatestValue<FramePacket>  q1_2{};
+		SPSCLatestValueCuda<bb_context_packet>  q1_2{};
     	SPSCLatestValueCuda<bb_context_packet>   q2_3{};
     	BoundedQueue<RenderPacket> q3_4{3};
 

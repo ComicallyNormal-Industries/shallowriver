@@ -196,19 +196,29 @@ std::vector<NvAR_Point3f> runner::processBodyPoseOutput(
 void runner::stage1_capture() {
     uint64_t frame_counter = 0;
     while (running) {
+        std::cout << "here\n";
         cv::Mat frame;
         cap >> frame; 
         if (frame.empty()) {
             running = false;
             break;
         }
+        std::cout << "here1\n";
         // CRITICAL FIX: Clone the frame so the capture thread doesn't overwrite it
         // if (!q1_2.produce({frame_counter++, frame.clone()})) break;
-        q1_2.produce_update([&](FramePacket& data) {
+        // q1_2.produce_update([&](FramePacket& data) {
+        //     data.frame_id = frame_counter++;
+        //     // Reuses the buffer inside data.image if the size/type matches
+        //     frame.copyTo(data.raw_frame); 
+        // });
+        std::cout << "here2\n";
+        q1_2.produce_update([&](bb_context_packet& data) {
+            std::cout << "here5\n";
             data.frame_id = frame_counter++;
-            // Reuses the buffer inside data.image if the size/type matches
+            std::cout << "here3\n";
             frame.copyTo(data.raw_frame); 
         });
+        std::cout << "here4\n";
     }
     // q1_2.stop();
 }
@@ -216,19 +226,27 @@ void runner::stage1_capture() {
 // --- STAGE 2: Model 1 (PeopleNet Bounding Box) ---
 void runner::stage2_bbox() {
     cudaSetDevice(0); // Bind CUDA context
-    FramePacket in;
+    // FramePacket in;
     // while (q1_2.pop(in)) {
     while (true) {
 
-        in = *q1_2.wait_and_consume();
-
-        bb_context_packet bb_packet {};
+        bb_context_packet* bb_packet = q1_2.wait_and_consume();         
 
         // cv::Mat model_input, input_blob;
-        preprocessFrame(in.raw_frame, peoplenet_resolution, bb_packet.model_input);
+        preprocessFrame(bb_packet->raw_frame, peoplenet_resolution, bb_packet->model_input);
         
+        
+
         // 1. Inference (cudaMemcpy inside this function will now handle locks safely)
-        bbox_runner.runInference(bb_packet);
+        if (bbox_runner.runInference(*bb_packet))
+        {
+
+        }
+        else
+        {
+            break;
+        }
+        
         
         // 2. Wait for inference to finish writing the output
         // cudaDeviceSynchronize();
@@ -249,10 +267,10 @@ void runner::stage2_bbox() {
         // std::vector<float> confidences;
         // std::vector<int> class_ids;
 
-        decodeDetections(*bb_cfg_ptr, bb_packet);
-        auto nms_indices = applyNMS(*bb_cfg_ptr, bb_packet.bboxes, bb_packet.confidences);
+        decodeDetections(*bb_cfg_ptr, *bb_packet);
+        auto nms_indices = applyNMS(*bb_cfg_ptr, bb_packet->bboxes, bb_packet->confidences);
         
-        renderDetections(bb_packet.model_input, *bb_cfg_ptr, bb_packet, nms_indices);
+        renderDetections(bb_packet->model_input, *bb_cfg_ptr, *bb_packet, nms_indices);
         
         // q1_2.produce_update([&](bb_context_packet& data) {
         //     data.frame_id = frame_counter++;
@@ -266,21 +284,21 @@ void runner::stage2_bbox() {
 
             // 1. ZERO-COPY VECTORS: std::move transfers the internal memory pointers 
             // from bb_packet directly to the queue's data without copying any elements.
-            data.bboxes = std::move(bb_packet.bboxes);
-            data.confidences = std::move(bb_packet.confidences);
-            data.class_ids = std::move(bb_packet.class_ids);
-            data.nms_indices = std::move(bb_packet.nms_indices);
+            data.bboxes = std::move(bb_packet->bboxes);
+            data.confidences = std::move(bb_packet->confidences);
+            data.class_ids = std::move(bb_packet->class_ids);
+            data.nms_indices = std::move(bb_packet->nms_indices);
 
             // 2. ZERO-COPY CPU MAT: std::move transfers the OpenCV header and reference count.
             // It points data.raw_frame to the exact same pixel memory as bb_packet.raw_frame.
-            data.raw_frame = std::move(bb_packet.raw_frame);
+            data.raw_frame = std::move(bb_packet->raw_frame);
 
             // 3. CUDA-MAPPED MAT: You CANNOT use std::move here.
             // Because data.model_input is mapped to your fixed unified memory array (d_input), 
             // std::move would destroy that mapping. You must use copyTo() so it writes 
             // the underlying float values directly into the CUDA d_input array.
-            if (!bb_packet.model_input.empty()) {
-                bb_packet.model_input.copyTo(data.model_input);
+            if (!bb_packet->model_input.empty()) {
+                bb_packet->model_input.copyTo(data.model_input);
             }
         });
         // if (!q2_3.push({in.frame_id, in.raw_frame, model_input, bboxes, confidences, class_ids, nms_indices})) break;
@@ -291,25 +309,32 @@ void runner::stage2_bbox() {
 // --- STAGE 3: Model 2 (Body Pose 3D) ---
 void runner::stage3_pose() {
     cudaSetDevice(0); // Bind CUDA context
-    bb_context_packet in;
+    bb_context_packet* in;
     // while (q2_3.pop(in)) {
     while (true) {
 
-        in = *q2_3.wait_and_consume();
+        in = q2_3.wait_and_consume();
+
+        // --- VIEW THE FRAME AT THE START OF STAGE 3 ---
+
+        cv::imshow("Stage 3 Input", in->model_input);
+        cv::waitKey(1); // Refresh the GUI window (1ms delay)
+        
+        continue;
 
         // Loop through all detected people
-        for (int idx : in.nms_indices) {
-            if (in.class_ids[idx] == 0) { 
-                cv::Rect box = in.bboxes[idx];
+        for (int idx : in->nms_indices) {
+            if (in->class_ids[idx] == 0) { 
+                cv::Rect box = in->bboxes[idx];
                 box.x = std::max(0, box.x - 10);
                 box.y = std::max(0, box.y - 10);
-                box.width = std::min(in.model_input.cols - box.x, box.width + 20);
-                box.height = std::min(in.model_input.rows - box.y, box.height + 20);
+                box.width = std::min(in->model_input.cols - box.x, box.width + 20);
+                box.height = std::min(in->model_input.rows - box.y, box.height + 20);
 
                 cv::Mat crop_blob, t_form_inv;
                 
                 // 1. Preprocess Crop
-                preprocessBodyPoseInput(in.model_input, box, bp_cfg_ptr->input_w, bp_cfg_ptr->input_h, crop_blob, t_form_inv);
+                preprocessBodyPoseInput(in->model_input, box, bp_cfg_ptr->input_w, bp_cfg_ptr->input_h, crop_blob, t_form_inv);
 
                 // 2. Inference
                 pose_runner.run(crop_blob, t_form_inv);
@@ -345,14 +370,14 @@ void runner::stage3_pose() {
                     if (conf > 0.5f) {
                         int ax = static_cast<int>(t_form_inv.at<float>(0, 0) * kx + t_form_inv.at<float>(0, 1) * ky + t_form_inv.at<float>(0, 2));
                         int ay = static_cast<int>(t_form_inv.at<float>(1, 0) * kx + t_form_inv.at<float>(1, 1) * ky + t_form_inv.at<float>(1, 2));
-                        cv::circle(in.model_input, cv::Point(ax, ay), 4, cv::Scalar(0, 255, 255), -1);
+                        cv::circle(in->model_input, cv::Point(ax, ay), 4, cv::Scalar(0, 255, 255), -1);
                     }
                 }
             }
         }
         
         // Push to output
-        if (!q3_4.push({in.frame_id, in.model_input})) break;
+        if (!q3_4.push({in->frame_id, in->model_input})) break;
     }
     q3_4.stop();
 }

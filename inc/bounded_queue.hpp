@@ -148,18 +148,29 @@ struct CudaDeleter {
 template <typename T>
 class SPSCLatestValueCuda {
 public:
+    // SPSCLatestValueCuda() {
+    //     for (int i = 0; i < 3; ++i) {
+    //         T* raw_ptr = nullptr;
+            
+    //         // Allocate unified memory accessible by both CPU and GPU
+    //         cudaMallocManaged(&raw_ptr, sizeof(T));
+            
+    //         // Initialize the memory by calling T's constructor in-place
+    //         new (raw_ptr) T();
+            
+    //         // Wrap in unique_ptr with our custom CUDA deleter
+    //         buffers_[i].reset(raw_ptr);
+    //     }
+
+    //     write_buf_ = buffers_[0].get();
+    //     read_buf_ = buffers_[2].get();
+    //     ready_.store(buffers_[1].get(), std::memory_order_relaxed);
+    // }
     SPSCLatestValueCuda() {
         for (int i = 0; i < 3; ++i) {
-            T* raw_ptr = nullptr;
-            
-            // Allocate unified memory accessible by both CPU and GPU
-            cudaMallocManaged(&raw_ptr, sizeof(T));
-            
-            // Initialize the memory by calling T's constructor in-place
-            new (raw_ptr) T();
-            
-            // Wrap in unique_ptr with our custom CUDA deleter
-            buffers_[i].reset(raw_ptr);
+            // The standard heap allocates the vectors, and the bb_context_packet 
+            // constructor automatically handles the CUDA pointers internally!
+            buffers_[i] = std::make_unique<T>(); 
         }
 
         write_buf_ = buffers_[0].get();
@@ -211,7 +222,8 @@ private:
     static constexpr std::size_t cache_line_size = 64;
 
     // Updated array to use the custom CudaDeleter
-    std::unique_ptr<T, CudaDeleter<T>> buffers_[3];
+    // std::unique_ptr<T, CudaDeleter<T>> buffers_[3];
+    std::unique_ptr<T> buffers_[3];
 
     alignas(cache_line_size) std::atomic<T*> ready_{nullptr};
     alignas(cache_line_size) std::atomic<bool> has_new_{false};

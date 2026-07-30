@@ -158,20 +158,91 @@ bool bounding_box::initializeTRT(const std::string& engine_file, const cv::Size&
     return true;
 }
 // const cv::Mat& input_blob
-void bounding_box::runInference(bb_context_packet& bb_context) {
-    // 1. Copy the image data from the OpenCV Mat directly into unified memory
-    //std::memcpy(trt_ctx.d_input, input_blob.ptr<float>(), trt_ctx.input_bytes);
-	// cudaMemcpy(bb_context.d_input, input_blob.ptr<float>(), bb_context.get_input_bytes(), cudaMemcpyDefault);
+// bool bounding_box::runInference(bb_context_packet& bb_context) {
+//     // 1. Copy the image data from the OpenCV Mat directly into unified memory
+//     //std::memcpy(trt_ctx.d_input, input_blob.ptr<float>(), trt_ctx.input_bytes);
+// 	// cudaMemcpy(bb_context.d_input, input_blob.ptr<float>(), bb_context.get_input_bytes(), cudaMemcpyDefault);
 
-    trt_ctx.context->setTensorAddress("input_1:0", bb_context.d_input);
-    trt_ctx.context->setTensorAddress("output_bbox/BiasAdd:0", bb_context.d_bbox);
-    trt_ctx.context->setTensorAddress("output_cov/Sigmoid:0", bb_context.d_cov);
+//     trt_ctx.context->setTensorAddress("input_1:0", bb_context.d_input);
+//     trt_ctx.context->setTensorAddress("output_bbox/BiasAdd:0", bb_context.d_bbox);
+//     trt_ctx.context->setTensorAddress("output_cov/Sigmoid:0", bb_context.d_cov);
 
-    // 2. Tell TensorRT to run the network
+//     trt_ctx.context->setInputShape("input_1:0", nvinfer1::Dims4{1, 3, PEOPLENET_HEIGHT, PEOPLENET_WIDTH});
+
+//     // 2. Tell TensorRT to run the network
+//     trt_ctx.context->enqueueV3(trt_ctx.stream);
+
+//     // 3. CRITICAL: Force the CPU to wait until the GPU is completely finished
+//     // cudaStreamSynchronize(trt_ctx.stream);
+//     cudaError_t sync_status = cudaStreamSynchronize(trt_ctx.stream);
+
+//     if (sync_status != cudaSuccess) {
+//         // Print the exact CUDA error and break the loop to avoid the Segfault
+//         std::cerr << "GPU Inference failed: " << cudaGetErrorString(sync_status) << std::endl; 
+//         return false;
+//     }
+//     return true;
+// }
+
+bool bounding_box::runInference(bb_context_packet& bb_context) {
+
+    // auto engine_ptr = trt_ctx.context.getContextPtr()->getEngine();
+        
+        nvinfer1::Dims in_dims = trt_ctx.context->getTensorShape("input_1:0");
+        nvinfer1::Dims bbox_dims = trt_ctx.context->getTensorShape("output_bbox/BiasAdd:0");
+        nvinfer1::Dims cov_dims = trt_ctx.context->getTensorShape("output_cov/Sigmoid:0");
+
+        std::cout << "\n[DEBUG] Engine Input Shape: [" 
+                  << in_dims.d[0] << ", " << in_dims.d[1] << ", " 
+                  << in_dims.d[2] << ", " << in_dims.d[3] << "]" << std::endl;
+                  
+        std::cout << "[DEBUG] Engine BBox Shape:  [" 
+                  << bbox_dims.d[0] << ", " << bbox_dims.d[1] << ", " 
+                  << bbox_dims.d[2] << ", " << bbox_dims.d[3] << "]" << std::endl;
+
+        // --- DIAGNOSTIC 4: Poisoned Math Check ---
+        bool has_garbage = false;
+        for (int i = 0; i < 100; ++i) { 
+            float val = bb_context.d_input[i];
+            if (std::isnan(val) || std::isinf(val) || val > 2.0f || val < -2.0f) {
+                has_garbage = true;
+            }
+        }
+        
+        if (has_garbage) {
+            std::cerr << "[FATAL] d_input contains uninitialized Garbage/NaNs!" << std::endl;
+            std::cerr << "You must std::memset the memory to 0 after allocating it." << std::endl;
+            // break; 
+        }
+        std::cout << "[DEBUG] Input memory appears clean." << std::endl;
+        
+    // DIAGNOSTIC 1: Did OpenCV sever the Zero-Copy mapping?
+    if (reinterpret_cast<float*>(bb_context.model_input.data) != bb_context.d_input) {
+        std::cerr << "[FATAL] OpenCV abandoned the unified memory!" << std::endl;
+        return false;
+    }
+
+    // DIAGNOSTIC 2: Did the bindings actually attach?
+    bool b1 = trt_ctx.context->setTensorAddress("input_1:0", bb_context.d_input);
+    bool b2 = trt_ctx.context->setTensorAddress("output_bbox/BiasAdd:0", bb_context.d_bbox);
+    bool b3 = trt_ctx.context->setTensorAddress("output_cov/Sigmoid:0", bb_context.d_cov);
+    
+    if (!b1 || !b2 || !b3) {
+        std::cerr << "[FATAL] setTensorAddress failed. Check your tensor names!" << std::endl;
+        return false;
+    }
+
+    trt_ctx.context->setInputShape("input_1:0", nvinfer1::Dims4{1, 3, PEOPLENET_HEIGHT, PEOPLENET_WIDTH});
+
     trt_ctx.context->enqueueV3(trt_ctx.stream);
+    cudaError_t sync_status = cudaStreamSynchronize(trt_ctx.stream);
 
-    // 3. CRITICAL: Force the CPU to wait until the GPU is completely finished
-    cudaStreamSynchronize(trt_ctx.stream);
+    if (sync_status != cudaSuccess) {
+        std::cerr << "GPU Inference failed: " << cudaGetErrorString(sync_status) << std::endl; 
+        return false;
+    }
+    
+    return true;
 }
 
 void bounding_box::cleanupTRT() {
