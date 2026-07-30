@@ -9,6 +9,56 @@
 #include <fstream>
 #include <unistd.h>
 
+constexpr size_t PEOPLENET_WIDTH = 960;  // 60 grid_w * 16 stride_x
+constexpr size_t PEOPLENET_HEIGHT = 544; // 34 grid_h * 16 stride_y
+constexpr size_t PEOPLENET_CHANNELS = 3;
+
+constexpr size_t GRID_W = 60;
+constexpr size_t GRID_H = 34;
+constexpr size_t NUM_CLASSES = 3;
+
+// 2. Element counts for the fixed-size arrays
+constexpr size_t INPUT_ELEMENTS = PEOPLENET_CHANNELS * PEOPLENET_HEIGHT * PEOPLENET_WIDTH;
+constexpr size_t BBOX_ELEMENTS = (NUM_CLASSES * 4) * GRID_H * GRID_W;
+constexpr size_t COV_ELEMENTS = NUM_CLASSES * GRID_H * GRID_W;
+
+constexpr size_t FRAME_X = 1920;
+constexpr size_t FRAME_Y = 1080;
+
+struct bb_context_packet
+{
+	uint64_t frame_id;
+	std::vector<cv::Rect> bboxes;
+    std::vector<float> confidences;
+    std::vector<int> class_ids;
+    std::vector<int> nms_indices;
+
+	cv::Mat raw_frame;
+    cv::Mat model_input;
+	cv::Mat input_blob;
+
+	float d_input[INPUT_ELEMENTS];
+    float d_bbox[BBOX_ELEMENTS];
+    float d_cov[COV_ELEMENTS];
+	// size_t input_bytes = 1 * 3 * resolution.height * resolution.width * sizeof(float);
+
+	bb_context_packet() {
+        // Pre-allocate resized BGR frame buffer (8-bit, 3 channels)
+        // model_input.create(PEOPLENET_HEIGHT, PEOPLENET_WIDTH, CV_8UC3);
+		raw_frame.create(FRAME_X, FRAME_Y, CV_8UC3);
+
+        // Wrap d_input directly into NCHW format (1 x 3 x Height x Width)
+        int sizes[4] = {1, 3, PEOPLENET_HEIGHT, PEOPLENET_WIDTH};
+        model_input = cv::Mat(4, sizes, CV_32F, d_input);
+    }
+	
+	// Optional helper methods if you still need the byte counts elsewhere in your code
+    size_t get_input_bytes() const { return INPUT_ELEMENTS * sizeof(float); }
+    size_t get_bbox_bytes() const { return BBOX_ELEMENTS * sizeof(float); }
+    size_t get_cov_bytes() const { return COV_ELEMENTS * sizeof(float); }
+};
+
+
 struct ModelConfig {
     int grid_h = 34;
     int grid_w = 60;
@@ -37,18 +87,17 @@ struct TRTContext {
 };
 
 class bounding_box {
-	private:
+	public:
 		bool compileOnnxToEngine(const std::string& onnxPath, const std::string& enginePath, cv::Size targetSize);
 
 		std::vector<char> loadEngineFile(const std::string& filename);
 
 		bool initializeTRT(const std::string& engine_file, const cv::Size& resolution);
 
-		void runInference(const cv::Mat& input_blob);
+		void runInference(bb_context_packet& bb_context);
 	
 		void cleanupTRT();
 
-	public:
 
 		ModelConfig config;
 		TRTContext trt_ctx;

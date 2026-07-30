@@ -28,12 +28,22 @@ bool runner::loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSi
     return true;
 }
 
-cv::Mat runner::preprocessFrame(const cv::Mat& frame, cv::Mat& out_model_input, cv::Size target_resolution) {
-    cv::resize(frame, out_model_input, target_resolution);
-    return cv::dnn::blobFromImage(out_model_input, 1.0 / 255.0, target_resolution, cv::Scalar(0,0,0), true, false);
+void runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, cv::Mat& blob) {
+    // cv::resize(frame, out_model_input, target_resolution);
+    // blob = cv::dnn::blobFromImage(out_model_input, 1.0 / 255.0, target_resolution, cv::Scalar(0,0,0), true, false);
+    cv::dnn::blobFromImage(
+        frame,              // Input image
+        blob,               // Output array (writes directly into your pre-allocated CUDA Mat)
+        1.0 / 255.0,        // Scale factor
+        target_resolution,  // Target size (replaces the need for cv::resize)
+        cv::Scalar(0,0,0),  // Mean subtraction
+        true,               // SwapRB (BGR to RGB)
+        false,              // Crop
+        CV_32F              // Depth
+    );
 }
 
-void runner::decodeDetections(const std::vector<float>& safe_cov, const std::vector<float>& safe_bbox, const ModelConfig& cfg, std::vector<cv::Rect>& bboxes, std::vector<float>& confidences, std::vector<int>& class_ids) {
+void runner::decodeDetections(const ModelConfig& cfg, bb_context_packet& bb_context) {
 
     int stride_spatial = cfg.grid_h * cfg.grid_w;
 
@@ -44,7 +54,7 @@ void runner::decodeDetections(const std::vector<float>& safe_cov, const std::vec
                 int cov_offset = (c * stride_spatial) + (y * cfg.grid_w) + x;
                 
                 // UPDATED: Reading from the safe CPU vector instead of Unified Memory
-                float confidence = safe_cov[cov_offset];
+                float confidence = bb_context.d_cov[cov_offset];
 
                 if (confidence >= cfg.conf_threshold) {
                     int base_bbox_class = (c * 4);
@@ -54,10 +64,10 @@ void runner::decodeDetections(const std::vector<float>& safe_cov, const std::vec
                     int idx_y2 = ((base_bbox_class + 3) * stride_spatial) + (y * cfg.grid_w) + x;
 
                     // UPDATED: Reading from the safe CPU vector
-                    float dx1 = safe_bbox[idx_x1];
-                    float dy1 = safe_bbox[idx_y1];
-                    float dx2 = safe_bbox[idx_x2];
-                    float dy2 = safe_bbox[idx_y2];
+                    float dx1 = bb_context.d_cov[idx_x1];
+                    float dy1 = bb_context.d_cov[idx_y1];
+                    float dx2 = bb_context.d_cov[idx_x2];
+                    float dy2 = bb_context.d_cov[idx_y2];
 
                     float cell_center_x = static_cast<float>(x) * cfg.stride_x + 0.5f;
                     float cell_center_y = static_cast<float>(y) * cfg.stride_y + 0.5f;
@@ -75,9 +85,9 @@ void runner::decodeDetections(const std::vector<float>& safe_cov, const std::vec
                     float height = y2 - y1;
 
                     if (width > 4.0f && height > 4.0f) {
-                        bboxes.push_back(cv::Rect(static_cast<int>(x1), static_cast<int>(y1), static_cast<int>(width), static_cast<int>(height)));
-                        confidences.push_back(confidence);
-                        class_ids.push_back(c);
+                        bb_context.bboxes.push_back(cv::Rect(static_cast<int>(x1), static_cast<int>(y1), static_cast<int>(width), static_cast<int>(height)));
+                        bb_context.confidences.push_back(confidence);
+                        bb_context.class_ids.push_back(c);
                     }
                 }
             }
@@ -91,11 +101,11 @@ std::vector<int> runner::applyNMS(const ModelConfig& cfg, const std::vector<cv::
     return nms_indices;
 }
 
-void runner::renderDetections(cv::Mat& output_image, const ModelConfig& cfg, const std::vector<cv::Rect>& bboxes, const std::vector<float>& confidences, const std::vector<int>& class_ids, const std::vector<int>& nms_indices) {
+void runner::renderDetections(cv::Mat& output_image, const ModelConfig& cfg, bb_context_packet& bb_context, const std::vector<int>& nms_indices) {
     for (int idx : nms_indices) {
-        cv::Rect box = bboxes[idx];
-        int class_id = class_ids[idx];
-        float score = confidences[idx];
+        cv::Rect box = bb_context.bboxes[idx];
+        int class_id = bb_context.class_ids[idx];
+        float score = bb_context.confidences[idx];
 
         cv::rectangle(output_image, box, cfg.class_colors[class_id], 2);
 
@@ -212,46 +222,81 @@ void runner::stage2_bbox() {
 
         in = *q1_2.wait_and_consume();
 
-        cv::Mat model_input, input_blob;
-        input_blob = preprocessFrame(in.raw_frame, model_input, peoplenet_resolution);
+        bb_context_packet bb_packet {};
+
+        // cv::Mat model_input, input_blob;
+        preprocessFrame(in.raw_frame, peoplenet_resolution, bb_packet.model_input);
         
         // 1. Inference (cudaMemcpy inside this function will now handle locks safely)
-        bbox_runner.run(input_blob);
+        bbox_runner.runInference(bb_packet);
         
         // 2. Wait for inference to finish writing the output
-        cudaDeviceSynchronize();
+        // cudaDeviceSynchronize();
         
         // 3. CLONE THE OUTPUTS to safe CPU heap memory
-        int spatial_size = bb_cfg_ptr->grid_h * bb_cfg_ptr->grid_w;
-        int cov_elements = bb_cfg_ptr->num_classes * spatial_size;
-        int bbox_elements = bb_cfg_ptr->num_classes * 4 * spatial_size;
+        // int spatial_size = bb_cfg_ptr->grid_h * bb_cfg_ptr->grid_w;
+        // int cov_elements = bb_cfg_ptr->num_classes * spatial_size;
+        // int bbox_elements = bb_cfg_ptr->num_classes * 4 * spatial_size;
 
-        std::vector<float> safe_cov(cov_elements);
-        std::vector<float> safe_bbox(bbox_elements);
+        // std::vector<float> safe_cov(cov_elements);
+        // std::vector<float> safe_bbox(bbox_elements);
 
-        cudaMemcpy(safe_cov.data(), bb_ctx_ptr->d_cov, cov_elements * sizeof(float), cudaMemcpyDefault);
-        cudaMemcpy(safe_bbox.data(), bb_ctx_ptr->d_bbox, bbox_elements * sizeof(float), cudaMemcpyDefault);
+        // cudaMemcpy(safe_cov.data(), bb_ctx_ptr->d_cov, cov_elements * sizeof(float), cudaMemcpyDefault);
+        // cudaMemcpy(safe_bbox.data(), bb_ctx_ptr->d_bbox, bbox_elements * sizeof(float), cudaMemcpyDefault);
         
         // 4. Postprocess using the safe CPU clones (You will need to update decodeDetections to accept these vectors)
-        std::vector<cv::Rect> bboxes;
-        std::vector<float> confidences;
-        std::vector<int> class_ids;
-        decodeDetections(safe_cov, safe_bbox, *bb_cfg_ptr, bboxes, confidences, class_ids);
-        auto nms_indices = applyNMS(*bb_cfg_ptr, bboxes, confidences);
+        // std::vector<cv::Rect> bboxes;
+        // std::vector<float> confidences;
+        // std::vector<int> class_ids;
+
+        decodeDetections(*bb_cfg_ptr, bb_packet);
+        auto nms_indices = applyNMS(*bb_cfg_ptr, bb_packet.bboxes, bb_packet.confidences);
         
-        renderDetections(model_input, *bb_cfg_ptr, bboxes, confidences, class_ids, nms_indices);
+        renderDetections(bb_packet.model_input, *bb_cfg_ptr, bb_packet, nms_indices);
         
-        if (!q2_3.push({in.frame_id, in.raw_frame, model_input, bboxes, confidences, class_ids, nms_indices})) break;
+        // q1_2.produce_update([&](bb_context_packet& data) {
+        //     data.frame_id = frame_counter++;
+        //     // Reuses the buffer inside data.image if the size/type matches
+        //     bb_packet.raw_frame.copyTo(data.raw_frame); 
+        //     bb_packet.blob_input.copyTo(data.blob_input);
+
+
+        // });
+        q2_3.produce_update([&](bb_context_packet& data) {
+
+            // 1. ZERO-COPY VECTORS: std::move transfers the internal memory pointers 
+            // from bb_packet directly to the queue's data without copying any elements.
+            data.bboxes = std::move(bb_packet.bboxes);
+            data.confidences = std::move(bb_packet.confidences);
+            data.class_ids = std::move(bb_packet.class_ids);
+            data.nms_indices = std::move(bb_packet.nms_indices);
+
+            // 2. ZERO-COPY CPU MAT: std::move transfers the OpenCV header and reference count.
+            // It points data.raw_frame to the exact same pixel memory as bb_packet.raw_frame.
+            data.raw_frame = std::move(bb_packet.raw_frame);
+
+            // 3. CUDA-MAPPED MAT: You CANNOT use std::move here.
+            // Because data.model_input is mapped to your fixed unified memory array (d_input), 
+            // std::move would destroy that mapping. You must use copyTo() so it writes 
+            // the underlying float values directly into the CUDA d_input array.
+            if (!bb_packet.model_input.empty()) {
+                bb_packet.model_input.copyTo(data.model_input);
+            }
+        });
+        // if (!q2_3.push({in.frame_id, in.raw_frame, model_input, bboxes, confidences, class_ids, nms_indices})) break;
     }
-    q2_3.stop();
+    // q2_3.stop();
 }
 
 // --- STAGE 3: Model 2 (Body Pose 3D) ---
 void runner::stage3_pose() {
     cudaSetDevice(0); // Bind CUDA context
-    BBoxPacket in;
-    while (q2_3.pop(in)) {
-        
+    bb_context_packet in;
+    // while (q2_3.pop(in)) {
+    while (true) {
+
+        in = *q2_3.wait_and_consume();
+
         // Loop through all detected people
         for (int idx : in.nms_indices) {
             if (in.class_ids[idx] == 0) { 
@@ -347,7 +392,7 @@ void runner::stage4_output() {
             
             // Stop queues to unblock sleeping threads
             // q1_2.stop();
-            q2_3.stop();
+            // q2_3.stop();
             q3_4.stop();
             break;
         }

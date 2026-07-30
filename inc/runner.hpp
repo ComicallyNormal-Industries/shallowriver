@@ -30,36 +30,19 @@ struct RenderPacket {
     cv::Mat final_frame;
 };
 
-struct bb_context_in
-{
-	float* d_input = nullptr;
-	size_t input_bytes;
-};
-
-struct bb_context_out
-{
-	float* d_bbox = nullptr;
-    float* d_cov = nullptr;
-	size_t input_bytes;
-};
-
-struct bp_context_in
+struct bp_context_packet
 {
 	// Inputs changed to float*
     float *d_input0 = nullptr, *d_k_inv = nullptr, *d_t_form_inv = nullptr;
     float *d_scale_norm_limb = nullptr, *d_mean_limb = nullptr;
+	float *d_pose2d = nullptr, *d_pose2d_org = nullptr, *d_pose25d = nullptr, *d_pose3d = nullptr;
 };
 
-struct bp_context_out
-{
-	// Outputs changed to float*
-    float *d_pose2d = nullptr, *d_pose2d_org = nullptr, *d_pose25d = nullptr, *d_pose3d = nullptr;
-};
 
 
 class runner {
 
-	private:
+	public:
 
 		cv::VideoCapture cap;
 		cv::Size stream_resolution;
@@ -93,13 +76,13 @@ class runner {
 
 		bool loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSize, cv::Size targetSize, CameraGeometry& outGeo);
 
-		cv::Mat preprocessFrame(const cv::Mat& frame, cv::Mat& out_model_input, cv::Size target_resolution);
+		void preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, cv::Mat& blob);
 
-		void decodeDetections(const std::vector<float>& safe_cov, const std::vector<float>& safe_bbox, const ModelConfig& cfg, std::vector<cv::Rect>& bboxes, std::vector<float>& confidences, std::vector<int>& class_ids);
+		void decodeDetections(const ModelConfig& cfg, bb_context_packet& bb_context);
 		
 		std::vector<int> applyNMS( const ModelConfig& cfg, const std::vector<cv::Rect>& bboxes, const std::vector<float>& confidences);
 
-		void renderDetections(cv::Mat& output_image, const ModelConfig& cfg, const std::vector<cv::Rect>& bboxes, const std::vector<float>& confidences, const std::vector<int>& class_ids, const std::vector<int>& nms_indices);
+		void renderDetections(cv::Mat& output_image, const ModelConfig& cfg, bb_context_packet& bb_context, const std::vector<int>& nms_indices);
 
 		void preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Rect& person_box, int input_w, int input_h, cv::Mat& out_blob, cv::Mat& out_t_form_inv);
 
@@ -109,7 +92,7 @@ class runner {
 		int setup(int mode);
 
 		SPSCLatestValue<FramePacket>  q1_2{};
-    	BoundedQueue<BBoxPacket>   q2_3{3};
+    	SPSCLatestValueCuda<bb_context_packet>   q2_3{};
     	BoundedQueue<RenderPacket> q3_4{3};
 
 		void stage1_capture();
@@ -117,7 +100,9 @@ class runner {
     	void stage3_pose();
     	void stage4_output();
 	
-		public:
+
+		// x6<6> bb_context;
+		SPSCLatestValueCuda<bb_context_packet> bp_context;
 
 		int run(int mode);
 		runner();

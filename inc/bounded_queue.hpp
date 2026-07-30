@@ -168,10 +168,10 @@ public:
     }
 
     // Non-copyable, non-movable
-    SPSCLatestValueCuda(const SPSCLatestValue&) = delete;
-    SPSCLatestValueCuda& operator=(const SPSCLatestValue&) = delete;
-    SPSCLatestValueCuda(SPSCLatestValue&&) = delete;
-    SPSCLatestValueCuda& operator=(SPSCLatestValue&&) = delete;
+    SPSCLatestValueCuda(const SPSCLatestValueCuda&) = delete;
+    SPSCLatestValueCuda& operator=(const SPSCLatestValueCuda&) = delete;
+    SPSCLatestValueCuda(SPSCLatestValueCuda&&) = delete;
+    SPSCLatestValueCuda& operator=(SPSCLatestValueCuda&&) = delete;
 
     template <typename F>
     void produce_update(F&& updater) {

@@ -138,30 +138,35 @@ bool bounding_box::initializeTRT(const std::string& engine_file, const cv::Size&
     trt_ctx.context.reset(trt_ctx.engine->createExecutionContext());
 
     // 1. Calculate the required number of elements for your outputs
-    size_t bbox_elements = 1 * (config.num_classes * 4) * config.grid_h * config.grid_w;
-    size_t cov_elements = 1 * config.num_classes * config.grid_h * config.grid_w;
+    // size_t bbox_elements = 1 * (config.num_classes * 4) * config.grid_h * config.grid_w;
+    // size_t cov_elements = 1 * config.num_classes * config.grid_h * config.grid_w;
     
-    trt_ctx.input_bytes = 1 * 3 * resolution.height * resolution.width * sizeof(float);
+    // trt_ctx.input_bytes = 1 * 3 * resolution.height * resolution.width * sizeof(float);
 
     // 2. Allocate Unified Memory directly into the struct's pointers
-    cudaMallocManaged((void**)&trt_ctx.d_input, trt_ctx.input_bytes);
-    cudaMallocManaged((void**)&trt_ctx.d_bbox, bbox_elements * sizeof(float));
-    cudaMallocManaged((void**)&trt_ctx.d_cov, cov_elements * sizeof(float));
+    // cudaMallocManaged((void**)&trt_ctx.d_input, trt_ctx.input_bytes);
+    // cudaMallocManaged((void**)&trt_ctx.d_bbox, bbox_elements * sizeof(float));
+    // cudaMallocManaged((void**)&trt_ctx.d_cov, cov_elements * sizeof(float));
     
     cudaStreamCreate(&trt_ctx.stream);
 
     // 3. Set the tensor addresses for TensorRT
-    trt_ctx.context->setTensorAddress("input_1:0", trt_ctx.d_input);
-    trt_ctx.context->setTensorAddress("output_bbox/BiasAdd:0", trt_ctx.d_bbox);
-    trt_ctx.context->setTensorAddress("output_cov/Sigmoid:0", trt_ctx.d_cov);
+    // trt_ctx.context->setTensorAddress("input_1:0", trt_ctx.d_input);
+    // trt_ctx.context->setTensorAddress("output_bbox/BiasAdd:0", trt_ctx.d_bbox);
+    // trt_ctx.context->setTensorAddress("output_cov/Sigmoid:0", trt_ctx.d_cov);
 
     return true;
 }
-
-void bounding_box::runInference(const cv::Mat& input_blob) {
+// const cv::Mat& input_blob
+void bounding_box::runInference(bb_context_packet& bb_context) {
     // 1. Copy the image data from the OpenCV Mat directly into unified memory
     //std::memcpy(trt_ctx.d_input, input_blob.ptr<float>(), trt_ctx.input_bytes);
-	cudaMemcpy(trt_ctx.d_input, input_blob.ptr<float>(), trt_ctx.input_bytes, cudaMemcpyDefault);
+	// cudaMemcpy(bb_context.d_input, input_blob.ptr<float>(), bb_context.get_input_bytes(), cudaMemcpyDefault);
+
+    trt_ctx.context->setTensorAddress("input_1:0", bb_context.d_input);
+    trt_ctx.context->setTensorAddress("output_bbox/BiasAdd:0", bb_context.d_bbox);
+    trt_ctx.context->setTensorAddress("output_cov/Sigmoid:0", bb_context.d_cov);
+
     // 2. Tell TensorRT to run the network
     trt_ctx.context->enqueueV3(trt_ctx.stream);
 
@@ -171,9 +176,9 @@ void bounding_box::runInference(const cv::Mat& input_blob) {
 
 void bounding_box::cleanupTRT() {
 	if (trt_ctx.stream) cudaStreamDestroy(trt_ctx.stream);
-	if (trt_ctx.d_input) cudaFree(trt_ctx.d_input);
-	if (trt_ctx.d_bbox) cudaFree(trt_ctx.d_bbox);
-    if (trt_ctx.d_cov) cudaFree(trt_ctx.d_cov);
+	// if (trt_ctx.d_input) cudaFree(trt_ctx.d_input);
+	// if (trt_ctx.d_bbox) cudaFree(trt_ctx.d_bbox);
+    // if (trt_ctx.d_cov) cudaFree(trt_ctx.d_cov);
 }
 
 int bounding_box::setup(std::string engine_file, std::string onnx_file, cv::Size targetSize, bool rebuild){
@@ -197,7 +202,7 @@ int bounding_box::setup(std::string engine_file, std::string onnx_file, cv::Size
 }
 
 int bounding_box::run(cv::Mat& input_blob){
-	runInference(input_blob);
+	// runInference(input_blob);
 	//printTRTContext();	
 	return 1;
 }
@@ -212,37 +217,37 @@ ModelConfig* bounding_box::getConfigPtr(){
 }
 
 void bounding_box::printTRTContext() {
-    std::cout << "=== TRTContext State ===" << std::endl;
+    // std::cout << "=== TRTContext State ===" << std::endl;
 
-    // TensorRT Smart Pointers (Check if they hold memory)
-    std::cout << "Runtime:       " << (trt_ctx.runtime ? "Allocated" : "nullptr") << std::endl;
-    std::cout << "Engine:        " << (trt_ctx.engine ? "Allocated" : "nullptr") << std::endl;
-    std::cout << "Context:       " << (trt_ctx.context ? "Allocated" : "nullptr") << std::endl;
+    // // TensorRT Smart Pointers (Check if they hold memory)
+    // std::cout << "Runtime:       " << (trt_ctx.runtime ? "Allocated" : "nullptr") << std::endl;
+    // std::cout << "Engine:        " << (trt_ctx.engine ? "Allocated" : "nullptr") << std::endl;
+    // std::cout << "Context:       " << (trt_ctx.context ? "Allocated" : "nullptr") << std::endl;
 
-    // CUDA Stream
-    std::cout << "CUDA Stream:   " << trt_ctx.stream << std::endl;
+    // // CUDA Stream
+    // std::cout << "CUDA Stream:   " << trt_ctx.stream << std::endl;
 
-    // GPU Device Pointers (Will print as hex memory addresses)
-    std::cout << "d_input:       " << trt_ctx.d_input << std::endl;
-    std::cout << "d_bbox:        " << trt_ctx.d_bbox << std::endl;
-    std::cout << "d_cov:         " << trt_ctx.d_cov << std::endl;
+    // // GPU Device Pointers (Will print as hex memory addresses)
+    // std::cout << "d_input:       " << trt_ctx.d_input << std::endl;
+    // std::cout << "d_bbox:        " << trt_ctx.d_bbox << std::endl;
+    // std::cout << "d_cov:         " << trt_ctx.d_cov << std::endl;
 
-    // Unified Memory (Print the first value as a sanity check directly from the pointer)
-    if (trt_ctx.d_bbox != nullptr) {
-        std::cout << "  └> d_bbox[0]: " << trt_ctx.d_bbox[0] << std::endl;
-    } else {
-        std::cout << "  └> d_bbox is nullptr" << std::endl;
-    }
+    // // Unified Memory (Print the first value as a sanity check directly from the pointer)
+    // if (trt_ctx.d_bbox != nullptr) {
+    //     std::cout << "  └> d_bbox[0]: " << trt_ctx.d_bbox[0] << std::endl;
+    // } else {
+    //     std::cout << "  └> d_bbox is nullptr" << std::endl;
+    // }
 
-    if (trt_ctx.d_cov != nullptr) {
-        std::cout << "  └> d_cov[0]:  " << trt_ctx.d_cov[0] << std::endl;
-    } else {
-        std::cout << "  └> d_cov is nullptr" << std::endl;
-    }
+    // if (trt_ctx.d_cov != nullptr) {
+    //     std::cout << "  └> d_cov[0]:  " << trt_ctx.d_cov[0] << std::endl;
+    // } else {
+    //     std::cout << "  └> d_cov is nullptr" << std::endl;
+    // }
 
-    // Memory Metadata
-    std::cout << "Input Bytes:   " << trt_ctx.input_bytes << " bytes" << std::endl;
-    std::cout << "========================" << std::endl;
+    // // Memory Metadata
+    // std::cout << "Input Bytes:   " << trt_ctx.input_bytes << " bytes" << std::endl;
+    // std::cout << "========================" << std::endl;
 }
 
 bounding_box::bounding_box(){
