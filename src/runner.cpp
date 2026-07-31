@@ -30,7 +30,6 @@ bool runner::loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSi
     return true;
 }
 
-//bdn
 void runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, cv::Mat& model_input, bb_context_packet& bb_context) {
     
     // 1. Resize the 2D image
@@ -71,11 +70,10 @@ void runner::decodeDetections(const ModelConfig& cfg, bb_context_packet& bb_cont
                     int idx_x2 = ((base_bbox_class + 2) * stride_spatial) + (y * cfg.grid_w) + x;
                     int idx_y2 = ((base_bbox_class + 3) * stride_spatial) + (y * cfg.grid_w) + x;
 
-                    // UPDATED: Reading from the safe CPU vector
-                    float dx1 = bb_context.d_cov[idx_x1];
-                    float dy1 = bb_context.d_cov[idx_y1];
-                    float dx2 = bb_context.d_cov[idx_x2];
-                    float dy2 = bb_context.d_cov[idx_y2];
+                    float dx1 = bb_context.d_bbox[idx_x1];
+                    float dy1 = bb_context.d_bbox[idx_y1];
+                    float dx2 = bb_context.d_bbox[idx_x2];
+                    float dy2 = bb_context.d_bbox[idx_y2];
 
                     float cell_center_x = static_cast<float>(x) * cfg.stride_x + 0.5f;
                     float cell_center_y = static_cast<float>(y) * cfg.stride_y + 0.5f;
@@ -257,7 +255,28 @@ void runner::stage2_bbox() {
         preprocessFrame(p->raw_frame, peoplenet_resolution, p->model_input, *p);
         bbox_runner.runInference(*p);
 
+        //testing
+        cudaDeviceSynchronize(); 
+
+        // 3. DIAGNOSTIC: Find the highest confidence score the network outputted
+        float max_conf = -1.0f;
+        for (size_t i = 0; i < COV_ELEMENTS; ++i) {
+            if (p->d_cov[i] > max_conf) {
+                max_conf = p->d_cov[i];
+            }
+        }
+        std::cout << "[STAGE 2] Max Confidence found: " << max_conf << std::endl;
+
+        // 4. Temporarily lower the threshold to catch low-confidence detections
+        float original_threshold = bb_cfg_ptr->conf_threshold;
+        bb_cfg_ptr->conf_threshold = 0.05f; // Drop to 5%
+        //end testing
+
+
         decodeDetections(*bb_cfg_ptr, *p);
+
+        //std::cout << "[STAGE 2] BBoxes found before NMS: " << p->bboxes.size() << std::endl;
+
         auto nms_indices = applyNMS(*bb_cfg_ptr, p->bboxes, p->confidences);
         
         renderDetections(p->model_input, *bb_cfg_ptr, *p, nms_indices);
