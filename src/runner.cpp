@@ -1,5 +1,7 @@
 #include "runner.hpp"
 
+PacketPool global_pool;
+
 bool runner::loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSize, cv::Size targetSize, CameraGeometry& outGeo) {
 	cv::FileStorage fs(filepath, cv::FileStorage::READ);
     if (!fs.isOpened()) {
@@ -194,116 +196,157 @@ std::vector<NvAR_Point3f> runner::processBodyPoseOutput(
 
 // --- STAGE 1: Frame Capture ---
 void runner::stage1_capture() {
+    // uint64_t frame_counter = 0;
+    // while (running) {
+    //     std::cout << "here\n";
+    //     cv::Mat frame;
+    //     cap >> frame; 
+    //     if (frame.empty()) {
+    //         running = false;
+    //         break;
+    //     }
+    //     std::cout << "here1\n";
+    //     // CRITICAL FIX: Clone the frame so the capture thread doesn't overwrite it
+    //     // if (!q1_2.produce({frame_counter++, frame.clone()})) break;
+    //     // q1_2.produce_update([&](FramePacket& data) {
+    //     //     data.frame_id = frame_counter++;
+    //     //     // Reuses the buffer inside data.image if the size/type matches
+    //     //     frame.copyTo(data.raw_frame); 
+    //     // });
+    //     std::cout << "here2\n";
+    //     q1_2.produce_update([&](bb_context_packet& data) {
+    //         std::cout << "here5\n";
+    //         data.frame_id = frame_counter++;
+    //         std::cout << "here3\n";
+    //         frame.copyTo(data.raw_frame); 
+    //     });
+    //     std::cout << "here4\n";
+    // }
+    // // q1_2.stop();
+
     uint64_t frame_counter = 0;
     while (running) {
-        std::cout << "here\n";
         cv::Mat frame;
         cap >> frame; 
-        if (frame.empty()) {
-            running = false;
-            break;
-        }
-        std::cout << "here1\n";
-        // CRITICAL FIX: Clone the frame so the capture thread doesn't overwrite it
-        // if (!q1_2.produce({frame_counter++, frame.clone()})) break;
-        // q1_2.produce_update([&](FramePacket& data) {
-        //     data.frame_id = frame_counter++;
-        //     // Reuses the buffer inside data.image if the size/type matches
-        //     frame.copyTo(data.raw_frame); 
-        // });
-        std::cout << "here2\n";
-        q1_2.produce_update([&](bb_context_packet& data) {
-            std::cout << "here5\n";
-            data.frame_id = frame_counter++;
-            std::cout << "here3\n";
-            frame.copyTo(data.raw_frame); 
+        if (frame.empty()) break;
+
+        // 1. Get a pre-allocated CUDA packet from the pool
+        PacketPtr p = get_pooled_packet();
+        if (!p) continue; // Skip frame if pipeline is completely backed up
+
+        // 2. Write data directly into the packet
+        p->frame_id = frame_counter++;
+        frame.copyTo(p->raw_frame);
+
+        // 3. Hand the pointer to the queue
+        q1_2.produce_update([&](PacketPtr& queue_slot) {
+            // If the queue slot already holds a pointer that Stage 2 never read (dropped frame),
+            // overwriting it here drops its ref-count to 0, instantly returning it to the pool!
+            queue_slot = p; 
         });
-        std::cout << "here4\n";
     }
-    // q1_2.stop();
 }
 
 // --- STAGE 2: Model 1 (PeopleNet Bounding Box) ---
 void runner::stage2_bbox() {
-    cudaSetDevice(0); // Bind CUDA context
-    // FramePacket in;
-    // while (q1_2.pop(in)) {
-    while (true) {
+    // cudaSetDevice(0); // Bind CUDA context
+    // // FramePacket in;
+    // // while (q1_2.pop(in)) {
+    // while (true) {
 
-        bb_context_packet* bb_packet = q1_2.wait_and_consume();         
+    //     bb_context_packet* bb_packet = q1_2.wait_and_consume();         
 
-        // cv::Mat model_input, input_blob;
-        preprocessFrame(bb_packet->raw_frame, peoplenet_resolution, bb_packet->model_input);
+    //     // cv::Mat model_input, input_blob;
+    //     preprocessFrame(bb_packet->raw_frame, peoplenet_resolution, bb_packet->model_input);
         
         
 
-        // 1. Inference (cudaMemcpy inside this function will now handle locks safely)
-        if (bbox_runner.runInference(*bb_packet))
-        {
+    //     // 1. Inference (cudaMemcpy inside this function will now handle locks safely)
+    //     if (bbox_runner.runInference(*bb_packet))
+    //     {
 
-        }
-        else
-        {
-            break;
-        }
+    //     }
+    //     else
+    //     {
+    //         break;
+    //     }
         
         
-        // 2. Wait for inference to finish writing the output
-        // cudaDeviceSynchronize();
+    //     // 2. Wait for inference to finish writing the output
+    //     // cudaDeviceSynchronize();
         
-        // 3. CLONE THE OUTPUTS to safe CPU heap memory
-        // int spatial_size = bb_cfg_ptr->grid_h * bb_cfg_ptr->grid_w;
-        // int cov_elements = bb_cfg_ptr->num_classes * spatial_size;
-        // int bbox_elements = bb_cfg_ptr->num_classes * 4 * spatial_size;
+    //     // 3. CLONE THE OUTPUTS to safe CPU heap memory
+    //     // int spatial_size = bb_cfg_ptr->grid_h * bb_cfg_ptr->grid_w;
+    //     // int cov_elements = bb_cfg_ptr->num_classes * spatial_size;
+    //     // int bbox_elements = bb_cfg_ptr->num_classes * 4 * spatial_size;
 
-        // std::vector<float> safe_cov(cov_elements);
-        // std::vector<float> safe_bbox(bbox_elements);
+    //     // std::vector<float> safe_cov(cov_elements);
+    //     // std::vector<float> safe_bbox(bbox_elements);
 
-        // cudaMemcpy(safe_cov.data(), bb_ctx_ptr->d_cov, cov_elements * sizeof(float), cudaMemcpyDefault);
-        // cudaMemcpy(safe_bbox.data(), bb_ctx_ptr->d_bbox, bbox_elements * sizeof(float), cudaMemcpyDefault);
+    //     // cudaMemcpy(safe_cov.data(), bb_ctx_ptr->d_cov, cov_elements * sizeof(float), cudaMemcpyDefault);
+    //     // cudaMemcpy(safe_bbox.data(), bb_ctx_ptr->d_bbox, bbox_elements * sizeof(float), cudaMemcpyDefault);
         
-        // 4. Postprocess using the safe CPU clones (You will need to update decodeDetections to accept these vectors)
-        // std::vector<cv::Rect> bboxes;
-        // std::vector<float> confidences;
-        // std::vector<int> class_ids;
+    //     // 4. Postprocess using the safe CPU clones (You will need to update decodeDetections to accept these vectors)
+    //     // std::vector<cv::Rect> bboxes;
+    //     // std::vector<float> confidences;
+    //     // std::vector<int> class_ids;
 
-        decodeDetections(*bb_cfg_ptr, *bb_packet);
-        auto nms_indices = applyNMS(*bb_cfg_ptr, bb_packet->bboxes, bb_packet->confidences);
+    //     decodeDetections(*bb_cfg_ptr, *bb_packet);
+    //     auto nms_indices = applyNMS(*bb_cfg_ptr, bb_packet->bboxes, bb_packet->confidences);
         
-        renderDetections(bb_packet->model_input, *bb_cfg_ptr, *bb_packet, nms_indices);
+    //     renderDetections(bb_packet->model_input, *bb_cfg_ptr, *bb_packet, nms_indices);
         
-        // q1_2.produce_update([&](bb_context_packet& data) {
-        //     data.frame_id = frame_counter++;
-        //     // Reuses the buffer inside data.image if the size/type matches
-        //     bb_packet.raw_frame.copyTo(data.raw_frame); 
-        //     bb_packet.blob_input.copyTo(data.blob_input);
+    //     // q1_2.produce_update([&](bb_context_packet& data) {
+    //     //     data.frame_id = frame_counter++;
+    //     //     // Reuses the buffer inside data.image if the size/type matches
+    //     //     bb_packet.raw_frame.copyTo(data.raw_frame); 
+    //     //     bb_packet.blob_input.copyTo(data.blob_input);
 
 
-        // });
-        q2_3.produce_update([&](bb_context_packet& data) {
+    //     // });
+    //     q2_3.produce_update([&](bb_context_packet& data) {
 
-            // 1. ZERO-COPY VECTORS: std::move transfers the internal memory pointers 
-            // from bb_packet directly to the queue's data without copying any elements.
-            data.bboxes = std::move(bb_packet->bboxes);
-            data.confidences = std::move(bb_packet->confidences);
-            data.class_ids = std::move(bb_packet->class_ids);
-            data.nms_indices = std::move(bb_packet->nms_indices);
+    //         // 1. ZERO-COPY VECTORS: std::move transfers the internal memory pointers 
+    //         // from bb_packet directly to the queue's data without copying any elements.
+    //         data.bboxes = std::move(bb_packet->bboxes);
+    //         data.confidences = std::move(bb_packet->confidences);
+    //         data.class_ids = std::move(bb_packet->class_ids);
+    //         data.nms_indices = std::move(bb_packet->nms_indices);
 
-            // 2. ZERO-COPY CPU MAT: std::move transfers the OpenCV header and reference count.
-            // It points data.raw_frame to the exact same pixel memory as bb_packet.raw_frame.
-            data.raw_frame = std::move(bb_packet->raw_frame);
+    //         // 2. ZERO-COPY CPU MAT: std::move transfers the OpenCV header and reference count.
+    //         // It points data.raw_frame to the exact same pixel memory as bb_packet.raw_frame.
+    //         data.raw_frame = std::move(bb_packet->raw_frame);
 
-            // 3. CUDA-MAPPED MAT: You CANNOT use std::move here.
-            // Because data.model_input is mapped to your fixed unified memory array (d_input), 
-            // std::move would destroy that mapping. You must use copyTo() so it writes 
-            // the underlying float values directly into the CUDA d_input array.
-            if (!bb_packet->model_input.empty()) {
-                bb_packet->model_input.copyTo(data.model_input);
-            }
-        });
-        // if (!q2_3.push({in.frame_id, in.raw_frame, model_input, bboxes, confidences, class_ids, nms_indices})) break;
-    }
+    //         // 3. CUDA-MAPPED MAT: You CANNOT use std::move here.
+    //         // Because data.model_input is mapped to your fixed unified memory array (d_input), 
+    //         // std::move would destroy that mapping. You must use copyTo() so it writes 
+    //         // the underlying float values directly into the CUDA d_input array.
+    //         // if (!bb_packet->model_input.empty()) {
+    //         //     bb_packet->model_input.copyTo(data.model_input);
+    //         // }
+    //     });
+    //     // if (!q2_3.push({in.frame_id, in.raw_frame, model_input, bboxes, confidences, class_ids, nms_indices})) break;
+    // }
     // q2_3.stop();
+    cudaSetDevice(0); 
+
+    while (true) {
+        // wait_and_consume returns a pointer to the queue's internal slot (PacketPtr*)
+        PacketPtr* in_slot = q1_2.wait_and_consume();
+        if (in_slot == nullptr) continue;
+
+        // Take a copy of the shared_ptr so we maintain ownership of the memory
+        PacketPtr p = *in_slot; 
+
+        // preprocess and run inference directly on p...
+        preprocessFrame(p->raw_frame, peoplenet_resolution, p->model_input);
+        bbox_runner.runInference(*p);
+        
+        // Pass the EXACT SAME POINTER to Stage 3
+        q2_3.produce_update([&](PacketPtr& queue_slot) {
+            queue_slot = p; 
+        });
+    }
 }
 
 // --- STAGE 3: Model 2 (Body Pose 3D) ---
@@ -313,12 +356,13 @@ void runner::stage3_pose() {
     // while (q2_3.pop(in)) {
     while (true) {
 
-        in = q2_3.wait_and_consume();
+        PacketPtr* in_slot = q2_3.wait_and_consume();
+        // in = q2_3.wait_and_consume();
 
         // --- VIEW THE FRAME AT THE START OF STAGE 3 ---
 
-        cv::imshow("Stage 3 Input", in->model_input);
-        cv::waitKey(1); // Refresh the GUI window (1ms delay)
+        // cv::imshow("Stage 3 Input", in->model_input);
+        // cv::waitKey(1); // Refresh the GUI window (1ms delay)
         
         continue;
 

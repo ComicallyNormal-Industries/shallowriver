@@ -8,6 +8,7 @@
 #include <NvOnnxParser.h>
 #include <fstream>
 #include <unistd.h>
+#pragma once
 
 constexpr size_t PEOPLENET_WIDTH = 960;  // 60 grid_w * 16 stride_x
 constexpr size_t PEOPLENET_HEIGHT = 544; // 34 grid_h * 16 stride_y

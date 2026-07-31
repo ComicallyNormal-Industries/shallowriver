@@ -9,6 +9,7 @@
 #include <thread>
 #include <atomic>
 #include "bounded_queue.hpp"
+#pragma once
 
 struct FramePacket {
     uint64_t frame_id;
@@ -91,8 +92,8 @@ class runner {
 
 		int setup(int mode);
 
-		SPSCLatestValueCuda<bb_context_packet>  q1_2{};
-    	SPSCLatestValueCuda<bb_context_packet>   q2_3{};
+		SPSCLatestValueCuda<PacketPtr>  q1_2{};
+    	SPSCLatestValueCuda<PacketPtr>   q2_3{};
     	BoundedQueue<RenderPacket> q3_4{3};
 
 		void stage1_capture();

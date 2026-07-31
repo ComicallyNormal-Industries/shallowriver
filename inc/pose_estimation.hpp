@@ -7,6 +7,7 @@
 #include <NvInfer.h>
 #include <NvOnnxParser.h>
 #include <unistd.h>
+#pragma once
 
 struct CameraGeometry {
     cv::Mat cameraMatrixOrig;
