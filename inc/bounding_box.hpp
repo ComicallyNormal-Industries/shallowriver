@@ -52,6 +52,20 @@ constexpr std::array<float, 36> mean_limb_lengths = {
 
 struct bb_context_packet
 {
+    //time stamp variables
+    double t_cap = 0.0;
+
+    double t_s2_total = 0.0;
+    double t_s2_pre = 0.0;
+    double t_s2_inf = 0.0;
+    double t_s2_post = 0.0;
+
+    double t_s3_total = 0.0;
+    double t_s3_pre = 0.0;
+    double t_s3_inf = 0.0;
+    double t_s3_post = 0.0;
+
+
     uint64_t frame_id;
     std::vector<cv::Rect> bboxes;
     std::vector<float> confidences;
@@ -77,6 +91,8 @@ struct bb_context_packet
 
     bb_context_packet() {
         
+
+
         cudaHostAlloc((void**)&d_input, (INPUT_ELEMENTS + TRT_PADDING) * sizeof(float), cudaHostAllocMapped);
         cudaHostAlloc((void**)&d_bbox, (BBOX_ELEMENTS + TRT_PADDING) * sizeof(float), cudaHostAllocMapped);
         cudaHostAlloc((void**)&d_cov, (COV_ELEMENTS + TRT_PADDING) * sizeof(float), cudaHostAllocMapped);

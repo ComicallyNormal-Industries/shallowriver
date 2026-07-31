@@ -246,19 +246,21 @@ std::vector<NvAR_Point3f> runner::processBodyPoseOutput(
 
 // --- STAGE 1: Frame Capture ---
 void runner::stage1_capture() {
-
     uint64_t frame_counter = 0;
     while (running) {
-        std::cout << "here0\n";
+        auto t_start = std::chrono::steady_clock::now();
+        
         cv::Mat frame;
         cap >> frame; 
         if (frame.empty()) break;
 
-        // 1. Get a pre-allocated CUDA packet from the pool
-        PacketPtr p = get_pooled_packet();
-        if (!p) continue; // Skip frame if pipeline is completely backed up
+        auto t_end = std::chrono::steady_clock::now();
+        double cap_time = std::chrono::duration<double, std::milli>(t_end - t_start).count();
 
-        // 2. Write data directly into the packet
+        PacketPtr p = get_pooled_packet();
+        if (!p) continue; 
+
+        p->t_cap = cap_time;
         p->frame_id = frame_counter++;
         frame.copyTo(p->raw_frame);
         p->bboxes.clear();
@@ -266,51 +268,42 @@ void runner::stage1_capture() {
         p->class_ids.clear();
         p->nms_indices.clear();
 
-        // 3. Hand the pointer to the queue
         q1_2.produce_update([&](PacketPtr& queue_slot) {
-            // If the queue slot already holds a pointer that Stage 2 never read (dropped frame),
-            // overwriting it here drops its ref-count to 0, instantly returning it to the pool!
             queue_slot = std::move(p);
         });
-        std::cout << "here1\n";
     }
 }
 
 // --- STAGE 2: Model 1 (PeopleNet Bounding Box) ---
 void runner::stage2_bbox() {
     cudaSetDevice(0); 
-
     while (true) {
-        std::cout << "here2\n";
-        // wait_and_consume returns a pointer to the queue's internal slot (PacketPtr*)
         PacketPtr* in_slot = q1_2.wait_and_consume();
         if (in_slot == nullptr) continue;
-
-        // Take a copy of the shared_ptr so we maintain ownership of the memory
-        //bdn
-        //PacketPtr p = *in_slot; 
         PacketPtr p = std::move(*in_slot);
+        if (!p) continue; 
 
-        if (!p) {
-            std::cerr << "[Warning] Stage 2 received a null packet." << std::endl;
-            continue; 
-        }
+        auto t_stage_start = std::chrono::steady_clock::now();
 
-        // preprocess and run inference directly on p...
-
+        // Preprocess
+        auto t0 = std::chrono::steady_clock::now();
         preprocessFrame(p->raw_frame, peoplenet_resolution, p->model_input, *p);
+        p->t_s2_pre = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+
+        // Inference
+        t0 = std::chrono::steady_clock::now();
         bbox_runner.runInference(*p);
+        p->t_s2_inf = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 
+        // Decode & NMS
+        t0 = std::chrono::steady_clock::now();
         decodeDetections(*bb_cfg_ptr, *p);
-
-        //std::cout << "[STAGE 2] BBoxes found before NMS: " << p->bboxes.size() << std::endl;
-
         p->nms_indices = applyNMS(*bb_cfg_ptr, p->bboxes, p->confidences);
-        
         renderDetections(p->model_input, *bb_cfg_ptr, *p, p->nms_indices);
+        p->t_s2_post = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 
-        std::cout << "here3\n";
-        // Pass the EXACT SAME POINTER to Stage 3
+        p->t_s2_total = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_stage_start).count();
+
         q2_3.produce_update([&](PacketPtr& queue_slot) {
             queue_slot = std::move(p);
         });
@@ -319,30 +312,18 @@ void runner::stage2_bbox() {
 
 // --- STAGE 3: Model 2 (Body Pose 3D) ---
 void runner::stage3_pose() {
-    cudaSetDevice(0); // Bind CUDA context
-    // bb_context_packet* in;
-    // while (q2_3.pop(in)) {
+    cudaSetDevice(0); 
     while (true) {
-
-        std::cout << "here4\n";
         PacketPtr* in_slot = q2_3.wait_and_consume();
-        //bdn
-        //PacketPtr p = *in_slot; 
+        if (in_slot == nullptr) break; 
         PacketPtr p = std::move(*in_slot);
-        if (!p) {
-            std::cerr << "[Warning] Stage 2 received a null packet." << std::endl;
-            continue; 
-        }
-        // in = q2_3.wait_and_consume();
+        if (!p) continue; 
 
-        // --- VIEW THE FRAME AT THE START OF STAGE 3 ---
+        auto t_stage_start = std::chrono::steady_clock::now();
+        p->t_s3_pre = 0.0;
+        p->t_s3_inf = 0.0;
+        p->t_s3_post = 0.0;
 
-        // cv::imshow("Stage 3 Input", in->raw_frame);
-        // cv::waitKey(1); // Refresh the GUI window (1ms delay)
-        std::cout << "here5\n";
-        // continue;
-
-        // Loop through all detected people
         for (int idx : p->nms_indices) {
             if (p->class_ids[idx] == 0) { 
                 cv::Rect box = p->bboxes[idx];
@@ -351,23 +332,26 @@ void runner::stage3_pose() {
                 box.width = std::min(p->model_input.cols - box.x, box.width + 20);
                 box.height = std::min(p->model_input.rows - box.y, box.height + 20);
 
-                cv::Mat crop_blob, t_form_inv;
+                cv::Mat t_form_inv;
                 
-                // 1. Preprocess Crop
-                //preprocessBodyPoseInput(p->model_input, box, bp_cfg_ptr->input_w, bp_cfg_ptr->input_h, p->model_input, t_form_inv);
+                // Preprocess Crop
+                auto t0 = std::chrono::steady_clock::now();
                 preprocessBodyPoseInput(p->model_input, box, bp_cfg_ptr->input_w, bp_cfg_ptr->input_h, p->d_input0, t_form_inv);
-                // 2. Inference
-                pose_runner.processAndRunBodyPose(*p);
+                p->t_s3_pre += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 
+                // Inference
+                t0 = std::chrono::steady_clock::now();
+                pose_runner.processAndRunBodyPose(*p);
+                cudaDeviceSynchronize(); // MUST WAIT for accurate timing
+                p->t_s3_inf += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+
+                // Decode & Draw
+                t0 = std::chrono::steady_clock::now();
                 std::vector<NvAR_Point3f> final_3d = processBodyPoseOutput(
-                    p->d_pose25d, p->d_pose3d,
-                    num_keypoints, box,
-                    input_w, input_h,
-                    pose_runner.geo.cameraMatrixOrig
+                    p->d_pose25d, p->d_pose3d, num_keypoints, box, input_w, input_h, pose_runner.geo.cameraMatrixOrig
                 );
                 p_logger.log_keypoints(final_3d);
 
-                // 6. Draw Skeleton using safe CPU vector
                 for (int k = 0; k < num_keypoints; ++k) {
                     float kx = p->d_pose2d[k * 3 + 0];
                     float ky = p->d_pose2d[k * 3 + 1];
@@ -378,66 +362,80 @@ void runner::stage3_pose() {
                         cv::circle(p->model_input, cv::Point(ax, ay), 4, cv::Scalar(0, 255, 255), -1);
                     }
                 }
+                p->t_s3_post += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
             }
         }
-        
+        p->t_s3_total = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_stage_start).count();
+
         q3_4.produce_update([&](PacketPtr& queue_slot) {
             queue_slot = std::move(p);
         });
-        // Push to output
-        // if (!q3_4.push({in->frame_id, in->model_input})) break;
     }
-    // q3_4.stop();
 }
 
 // --- STAGE 4: Output Display ---
 void runner::stage4_output() {
-    // // RenderPacket in;
-    // bb_context_packet* in;
-    
-    // Setup FPS tracking variables
     auto fps_start_time = std::chrono::steady_clock::now();
     int frame_count = 0;
     double current_fps = 0.0;
 
+    // Running sums for the 2-second benchmark report
+    double b_cap = 0;
+    double b_s2_tot = 0, b_s2_pre = 0, b_s2_inf = 0, b_s2_post = 0;
+    double b_s3_tot = 0, b_s3_pre = 0, b_s3_inf = 0, b_s3_post = 0;
+
     while (true) {
-
         PacketPtr* in_slot = q3_4.wait_and_consume();
-        //bdn
-        //PacketPtr p = *in_slot; 
+        if (in_slot == nullptr) break; 
         PacketPtr p = std::move(*in_slot);
-        if (!p) {
-            std::cerr << "[Warning] Stage 2 received a null packet." << std::endl;
-            continue; 
-        }
+        if (!p) continue; 
 
-        // Increment frames processed
         frame_count++;
+        
+        // Accumulate times for this frame
+        b_cap += p->t_cap;
+        b_s2_tot += p->t_s2_total; b_s2_pre += p->t_s2_pre; b_s2_inf += p->t_s2_inf; b_s2_post += p->t_s2_post;
+        b_s3_tot += p->t_s3_total; b_s3_pre += p->t_s3_pre; b_s3_inf += p->t_s3_inf; b_s3_post += p->t_s3_post;
+
         auto current_time = std::chrono::steady_clock::now();
         double elapsed_seconds = std::chrono::duration<double>(current_time - fps_start_time).count();
 
-        // Update the FPS calculation every 0.5 seconds for readability
-        if (elapsed_seconds >= 0.5) {
+        // Print benchmark report every 2.0 seconds
+        if (elapsed_seconds >= 2.0) {
             current_fps = frame_count / elapsed_seconds;
+            
+            std::cout << "\n=======================================================\n";
+            std::cout << " Pipeline Benchmark Averages (" << current_fps << " FPS)\n";
+            std::cout << "=======================================================\n";
+            std::cout << "Stage 1 (V4L2 Capture):       " << (b_cap / frame_count) << " ms\n";
+            std::cout << "-------------------------------------------------------\n";
+            std::cout << "Stage 2 (BBox Net Total):     " << (b_s2_tot / frame_count) << " ms\n";
+            std::cout << "  - Frame Preprocessing:      " << (b_s2_pre / frame_count) << " ms\n";
+            std::cout << "  - TensorRT Inference:       " << (b_s2_inf / frame_count) << " ms\n";
+            std::cout << "  - Decoding & NMS Merging:   " << (b_s2_post / frame_count) << " ms\n";
+            std::cout << "-------------------------------------------------------\n";
+            std::cout << "Stage 3 (Body Pose Total):    " << (b_s3_tot / frame_count) << " ms\n";
+            std::cout << "  - ROI Preprocessing:        " << (b_s3_pre / frame_count) << " ms\n";
+            std::cout << "  - TensorRT Inference:       " << (b_s3_inf / frame_count) << " ms\n";
+            std::cout << "  - Decode Math & Draw:       " << (b_s3_post / frame_count) << " ms\n";
+            std::cout << "=======================================================\n";
+            
+            // Reset aggregators for the next 2-second window
             fps_start_time = current_time;
             frame_count = 0;
+            b_cap = 0;
+            b_s2_tot = 0; b_s2_pre = 0; b_s2_inf = 0; b_s2_post = 0;
+            b_s3_tot = 0; b_s3_pre = 0; b_s3_inf = 0; b_s3_post = 0;
         }
 
-        // Draw the FPS metric onto the frame (Green text, top left)
         std::string fps_label = "Pipeline FPS: " + cv::format("%.1f", current_fps);
         cv::putText(p->model_input, fps_label, cv::Point(15, 40), 
                     cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
 
-        // Display the output
         cv::imshow("Active TensorRT 10 Framework Output", p->model_input);
         
-        if (cv::waitKey(1) == 27) { // ESC key
+        if (cv::waitKey(1) == 27) { 
             running = false;
-            
-            // Stop queues to unblock sleeping threads
-            // q1_2.stop();
-            // q2_3.stop();
-            // q3_4.stop();
             break;
         }
     }
@@ -463,10 +461,31 @@ int runner::setup(int mode) {
         std::cerr << "Warning: Could not load calibration data." << std::endl;
     }
 		
-	cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));	
-    cap.set(cv::CAP_PROP_FRAME_WIDTH, stream_resolution.width);
-    cap.set(cv::CAP_PROP_FRAME_HEIGHT, stream_resolution.height);
-	cap.set(cv::CAP_PROP_FPS, 30);
+        // 1. Define the hardware-accelerated GStreamer pipeline
+    // gst_pipeline = 
+    //     "v4l2src device=/dev/video0 ! "
+    //     "image/jpeg, width=1920, height=1080, framerate=30/1 ! "
+    //     "nvjpegdec ! "
+    //     "video/x-raw ! "
+    //     "videoconvert ! "
+    //     "video/x-raw, format=BGR ! "
+    //     "appsink drop=true sync=false";
+
+    cap.open(gst_pipeline, cv::CAP_GSTREAMER);
+
+    // 2. Open the camera using the GStreamer backend
+    // cap.open(gst_pipeline, cv::CAP_GSTREAMER);
+
+    if (!cap.isOpened()) {
+        std::cerr << "Error: Failed to open camera with GStreamer!" << std::endl;
+        return -1;
+    }
+
+
+	// cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));	
+    // cap.set(cv::CAP_PROP_FRAME_WIDTH, stream_resolution.width);
+    // cap.set(cv::CAP_PROP_FRAME_HEIGHT, stream_resolution.height);
+	// cap.set(cv::CAP_PROP_FPS, 30);
 
 	std::cout << "set up bounding box runner" << std::endl;
 	if(!bbox_runner.setup(bb_engine_file,bb_onnx_file, peoplenet_resolution, rebuild)){
@@ -519,6 +538,6 @@ int runner::run(int mode) {
     return 0;
 }
 
-runner::runner() : pose_runner(geo), cap(0, cv::CAP_V4L2) {
+runner::runner() : pose_runner(geo) {
     // The body can stay completely empty.
 }
