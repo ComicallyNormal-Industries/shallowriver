@@ -77,22 +77,21 @@ struct bb_context_packet
 
     bb_context_packet() {
         
-        cudaMallocManaged((void**)&d_input, (INPUT_ELEMENTS + TRT_PADDING) * sizeof(float));
-        cudaMallocManaged((void**)&d_bbox, (BBOX_ELEMENTS + TRT_PADDING) * sizeof(float));
-        cudaMallocManaged((void**)&d_cov, (COV_ELEMENTS + TRT_PADDING) * sizeof(float));
+        cudaHostAlloc((void**)&d_input, (INPUT_ELEMENTS + TRT_PADDING) * sizeof(float), cudaHostAllocMapped);
+        cudaHostAlloc((void**)&d_bbox, (BBOX_ELEMENTS + TRT_PADDING) * sizeof(float), cudaHostAllocMapped);
+        cudaHostAlloc((void**)&d_cov, (COV_ELEMENTS + TRT_PADDING) * sizeof(float), cudaHostAllocMapped);
 
-        cudaMallocManaged((void**)&d_input0, 1 * 3 * input_h * input_w * sizeof(float));
-        cudaMallocManaged((void**)&d_k_inv, 1 * 3 * 3 * sizeof(float));
-        cudaMallocManaged((void**)&d_t_form_inv, 1 * 3 * 3 * sizeof(float));
-        cudaMallocManaged((void**)&d_scale_norm_limb, 1 * 36 * sizeof(float));
-        cudaMallocManaged((void**)&d_mean_limb, 1 * 36 * sizeof(float));
+        cudaHostAlloc((void**)&d_input0, 1 * 3 * input_h * input_w * sizeof(float), cudaHostAllocMapped);
+        cudaHostAlloc((void**)&d_k_inv, 1 * 3 * 3 * sizeof(float), cudaHostAllocMapped);
+        cudaHostAlloc((void**)&d_t_form_inv, 1 * 3 * 3 * sizeof(float), cudaHostAllocMapped);
+        cudaHostAlloc((void**)&d_scale_norm_limb, 1 * 36 * sizeof(float), cudaHostAllocMapped);
+        cudaHostAlloc((void**)&d_mean_limb, 1 * 36 * sizeof(float), cudaHostAllocMapped);
 
-        cudaMallocManaged((void**)&d_pose2d, 1 * num_keypoints * 3 * sizeof(float));
-        cudaMallocManaged((void**)&d_pose2d_org, 1 * num_keypoints * 3 * sizeof(float));
-        cudaMallocManaged((void**)&d_pose25d, 1 * num_keypoints * 4 * sizeof(float));
-        cudaMallocManaged((void**)&d_pose3d, 1 * num_keypoints * 3 * sizeof(float));
+        cudaHostAlloc((void**)&d_pose2d, 1 * num_keypoints * 3 * sizeof(float), cudaHostAllocMapped);
+        cudaHostAlloc((void**)&d_pose2d_org, 1 * num_keypoints * 3 * sizeof(float), cudaHostAllocMapped);
+        cudaHostAlloc((void**)&d_pose25d, 1 * num_keypoints * 4 * sizeof(float), cudaHostAllocMapped);
+        cudaHostAlloc((void**)&d_pose3d, 1 * num_keypoints * 3 * sizeof(float), cudaHostAllocMapped);
 
-        // 2. Clear out NaN garbage strictly for the GPU arrays
         std::memset(d_input, 0, (INPUT_ELEMENTS + TRT_PADDING) * sizeof(float));
         std::memset(d_bbox, 0, (BBOX_ELEMENTS + TRT_PADDING) * sizeof(float));
         std::memset(d_cov, 0, (COV_ELEMENTS + TRT_PADDING) * sizeof(float));
@@ -101,7 +100,7 @@ struct bb_context_packet
         std::memset(d_pose2d_org, 0, 1 * num_keypoints * 3 * sizeof(float));
         std::memset(d_pose25d, 0, 1 * num_keypoints * 4 * sizeof(float));
         std::memset(d_pose3d, 0, 1 * num_keypoints * 3 * sizeof(float));
-        // 3. Initialize OpenCV objects in standard CPU RAM
+        
         model_input.create(cv::Size(960, 544), CV_8UC3);
 
         // blob.create(cv::Size(960, 544), CV_8UC3);
@@ -112,22 +111,20 @@ struct bb_context_packet
     
     // 4. Clean up CUDA memory safely when the packet is destroyed
     ~bb_context_packet() {
-        if (d_input) cudaFree(d_input);
-        if (d_bbox) cudaFree(d_bbox);
-        if (d_cov) cudaFree(d_cov);
+if (d_input) cudaFreeHost(d_input);
+        if (d_bbox) cudaFreeHost(d_bbox);
+        if (d_cov) cudaFreeHost(d_cov);
 
-        // Body Pose Pointers
-        if (d_input0) cudaFree(d_input0);
-        if (d_k_inv) cudaFree(d_k_inv);
-        if (d_t_form_inv) cudaFree(d_t_form_inv);
-        if (d_scale_norm_limb) cudaFree(d_scale_norm_limb);
-        if (d_mean_limb) cudaFree(d_mean_limb);
+        if (d_input0) cudaFreeHost(d_input0);
+        if (d_k_inv) cudaFreeHost(d_k_inv);
+        if (d_t_form_inv) cudaFreeHost(d_t_form_inv);
+        if (d_scale_norm_limb) cudaFreeHost(d_scale_norm_limb);
+        if (d_mean_limb) cudaFreeHost(d_mean_limb);
         
-        if (d_pose2d) cudaFree(d_pose2d);
-        if (d_pose2d_org) cudaFree(d_pose2d_org);
-        if (d_pose25d) cudaFree(d_pose25d);
-        if (d_pose3d) cudaFree(d_pose3d);
-
+        if (d_pose2d) cudaFreeHost(d_pose2d);
+        if (d_pose2d_org) cudaFreeHost(d_pose2d_org);
+        if (d_pose25d) cudaFreeHost(d_pose25d);
+        if (d_pose3d) cudaFreeHost(d_pose3d);
     }
 
     // 5. Prevent accidental deep copies that would cause double-frees

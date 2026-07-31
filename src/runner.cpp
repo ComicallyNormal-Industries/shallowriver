@@ -125,9 +125,53 @@ void runner::renderDetections(cv::Mat& output_image, const ModelConfig& cfg, bb_
     }
 }
 
-void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Rect& person_box, int input_w, int input_h, cv::Mat& out_blob, cv::Mat& out_t_form_inv) {
+// void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Rect& person_box, int input_w, int input_h, cv::Mat& out_blob, cv::Mat& out_t_form_inv) {
    
-	//Calculate the scale factor to preserve the aspect ratio
+// 	//Calculate the scale factor to preserve the aspect ratio
+//     float scale = std::min(static_cast<float>(input_w) / person_box.width, 
+//                            static_cast<float>(input_h) / person_box.height);
+
+//     //Calculate the centering offsets (this creates the black padding)
+//     float scaled_w = person_box.width * scale;
+//     float scaled_h = person_box.height * scale;
+//     float dx = (input_w - scaled_w) / 2.0f;
+//     float dy = (input_h - scaled_h) / 2.0f;
+
+//     //Map the pixels from the original frame into the padded 192x256 target
+//     cv::Mat t_form = (cv::Mat_<float>(2, 3) << 
+//         scale, 0.0f, -person_box.x * scale + dx,
+//         0.0f, scale, -person_box.y * scale + dy
+//     );
+
+//     //Create the 3x3 Inverse Transform Matrix for the GPU
+//     cv::Mat t_form_3x3 = cv::Mat::eye(3, 3, CV_32F);
+//     t_form.copyTo(t_form_3x3(cv::Rect(0, 0, 3, 2))); 
+
+//     cv::Mat t_form_inv_double = t_form_3x3.inv(); 
+//     t_form_inv_double.convertTo(out_t_form_inv, CV_32F);
+//     // out_t_form_inv = out_t_form_inv.clone();
+
+//     //warp the frame (OpenCV automatically pads empty space with black)
+//     // cv::Mat cropped_person;
+//     // cv::warpAffine(original_frame, cropped_person, t_form, cv::Size(input_w, input_h));
+    
+//     // //Convert to tensor blob
+//     // out_blob = cv::dnn::blobFromImage(cropped_person, 1.0/255.0, cv::Size(), cv::Scalar(0,0,0), true, false);
+
+//     cv::Mat cropped_person;
+//     cv::warpAffine(original_frame, cropped_person, t_form, cv::Size(input_w, input_h));
+    
+//     cv::Mat temp_blob;
+//     cv::dnn::blobFromImage(cropped_person, temp_blob, 1.0/255.0, cv::Size(), cv::Scalar(0,0,0), true, false, CV_32F);
+
+//     // CRITICAL FIX: Sync the CPU cache to the GPU memory for the Pose network!
+//     cudaMemcpy(d_input0_ptr, temp_blob.ptr<float>(), temp_blob.total() * sizeof(float), cudaMemcpyDefault);
+
+// }
+
+void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Rect& person_box, int input_w, int input_h, float* d_input0_ptr, cv::Mat& out_t_form_inv) {
+   
+    //Calculate the scale factor to preserve the aspect ratio
     float scale = std::min(static_cast<float>(input_w) / person_box.width, 
                            static_cast<float>(input_h) / person_box.height);
 
@@ -149,15 +193,17 @@ void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Re
 
     cv::Mat t_form_inv_double = t_form_3x3.inv(); 
     t_form_inv_double.convertTo(out_t_form_inv, CV_32F);
-    // out_t_form_inv = out_t_form_inv.clone();
 
     //warp the frame (OpenCV automatically pads empty space with black)
     cv::Mat cropped_person;
     cv::warpAffine(original_frame, cropped_person, t_form, cv::Size(input_w, input_h));
     
     //Convert to tensor blob
-    out_blob = cv::dnn::blobFromImage(cropped_person, 1.0/255.0, cv::Size(), cv::Scalar(0,0,0), true, false);
+    cv::Mat temp_blob;
+    cv::dnn::blobFromImage(cropped_person, temp_blob, 1.0/255.0, cv::Size(), cv::Scalar(0,0,0), true, false, CV_32F);
 
+    // CRITICAL FIX: Sync the CPU cache to the GPU memory for the Pose network!
+    cudaMemcpy(d_input0_ptr, temp_blob.ptr<float>(), temp_blob.total() * sizeof(float), cudaMemcpyDefault);
 }
 
 // CHANGED: The first two arguments are now const float* instead of const std::vector<float>&
@@ -308,8 +354,8 @@ void runner::stage3_pose() {
                 cv::Mat crop_blob, t_form_inv;
                 
                 // 1. Preprocess Crop
-                preprocessBodyPoseInput(p->model_input, box, bp_cfg_ptr->input_w, bp_cfg_ptr->input_h, p->model_input, t_form_inv);
-
+                //preprocessBodyPoseInput(p->model_input, box, bp_cfg_ptr->input_w, bp_cfg_ptr->input_h, p->model_input, t_form_inv);
+                preprocessBodyPoseInput(p->model_input, box, bp_cfg_ptr->input_w, bp_cfg_ptr->input_h, p->d_input0, t_form_inv);
                 // 2. Inference
                 pose_runner.processAndRunBodyPose(*p);
 
