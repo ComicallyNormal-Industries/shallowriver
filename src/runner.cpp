@@ -255,31 +255,13 @@ void runner::stage2_bbox() {
         preprocessFrame(p->raw_frame, peoplenet_resolution, p->model_input, *p);
         bbox_runner.runInference(*p);
 
-        //testing
-        cudaDeviceSynchronize(); 
-
-        // 3. DIAGNOSTIC: Find the highest confidence score the network outputted
-        float max_conf = -1.0f;
-        for (size_t i = 0; i < COV_ELEMENTS; ++i) {
-            if (p->d_cov[i] > max_conf) {
-                max_conf = p->d_cov[i];
-            }
-        }
-        std::cout << "[STAGE 2] Max Confidence found: " << max_conf << std::endl;
-
-        // 4. Temporarily lower the threshold to catch low-confidence detections
-        float original_threshold = bb_cfg_ptr->conf_threshold;
-        bb_cfg_ptr->conf_threshold = 0.05f; // Drop to 5%
-        //end testing
-
-
         decodeDetections(*bb_cfg_ptr, *p);
 
         //std::cout << "[STAGE 2] BBoxes found before NMS: " << p->bboxes.size() << std::endl;
 
-        auto nms_indices = applyNMS(*bb_cfg_ptr, p->bboxes, p->confidences);
+        p->nms_indices = applyNMS(*bb_cfg_ptr, p->bboxes, p->confidences);
         
-        renderDetections(p->model_input, *bb_cfg_ptr, *p, nms_indices);
+        renderDetections(p->model_input, *bb_cfg_ptr, *p, p->nms_indices);
 
         std::cout << "here3\n";
         // Pass the EXACT SAME POINTER to Stage 3
