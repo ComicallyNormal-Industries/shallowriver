@@ -201,19 +201,10 @@ TRTContext* bounding_box::getContextPtr() {
     return &trt_ctx; 
 }
 
-    // Returns a const pointer to bp_config so it can be read but not changed
 ModelConfig* bounding_box::getConfigPtr(){ 
 	return &config; 
 }
 
-
-bounding_box::bounding_box(){
-	;
-}
-
-bounding_box::~bounding_box(){
-	;
-}
 
 
 

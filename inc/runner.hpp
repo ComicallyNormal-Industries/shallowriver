@@ -31,7 +31,6 @@ class runner {
 		CameraGeometry geo;
 
 		BodyPoseContext* bp_ctx_ptr = nullptr;
-    	BodyPoseConfig* bp_cfg_ptr = nullptr;
 
 		TRTContext* bb_ctx_ptr = nullptr;
 		ModelConfig* bb_cfg_ptr = nullptr;

@@ -1,9 +1,5 @@
-//includes
 #include "pose_estimation.hpp"
 #include "glogger.hpp"
-//TODO
-//add file names
-//add reference to logger
 
 bool pose_estimation::compileOnnxToEngine(const std::string& onnxPath, const std::string& enginePath, cv::Size targetSize) {
 	std::cout << "\n========================================================" << std::endl;
@@ -13,10 +9,6 @@ bool pose_estimation::compileOnnxToEngine(const std::string& onnxPath, const std
 
 	nvinfer1::IBuilder* builder = nvinfer1::createInferBuilder(gLogger);
 	if (!builder) return false;
-
-	// Use strongly typed network configurations (TensorRT 10 native pattern)
-	//uint32_t flags = 1U << static_cast<uint32_t>(nvinfer1::NetworkDefinitionCreationFlag::kSTRONGLY_TYPED);
-	//nvinfer1::INetworkDefinition* network = builder->createNetworkV2(flags);
 	
 	uint32_t flags = 0; 
 	nvinfer1::INetworkDefinition* network = builder->createNetworkV2(flags);
@@ -132,44 +124,9 @@ bool pose_estimation::initializeBodyPose3D(const std::string& engine_file) {
 
     cudaStreamCreate(&bp_ctx.stream);
 
-    // 1. Allocate Unified Memory directly to the pointers
-    // cudaMallocManaged((void**)&bp_ctx.d_input0, 1 * 3 * bp_config.input_h * bp_config.input_w * sizeof(float));
-    // cudaMallocManaged((void**)&bp_ctx.d_k_inv, 1 * 3 * 3 * sizeof(float));
-    // cudaMallocManaged((void**)&bp_ctx.d_t_form_inv, 1 * 3 * 3 * sizeof(float));
-    // cudaMallocManaged((void**)&bp_ctx.d_scale_norm_limb, 1 * 36 * sizeof(float));
-    // cudaMallocManaged((void**)&bp_ctx.d_mean_limb, 1 * 36 * sizeof(float));
-
-    // cudaMallocManaged((void**)&bp_ctx.d_pose2d, 1 * bp_config.num_keypoints * 3 * sizeof(float));
-    // cudaMallocManaged((void**)&bp_ctx.d_pose2d_org, 1 * bp_config.num_keypoints * 3 * sizeof(float));
-    // cudaMallocManaged((void**)&bp_ctx.d_pose25d, 1 * bp_config.num_keypoints * 4 * sizeof(float));
-    // cudaMallocManaged((void**)&bp_ctx.d_pose3d, 1 * bp_config.num_keypoints * 3 * sizeof(float));
-
-    // (Host vector .resize() calls removed from here)
-
-    // 2. Set Tensor Addresses
-    // bp_ctx.context->setTensorAddress("input0", bp_ctx.d_input0);
-    // bp_ctx.context->setTensorAddress("k_inv", bp_ctx.d_k_inv);
-    // bp_ctx.context->setTensorAddress("t_form_inv", bp_ctx.d_t_form_inv);
-    // bp_ctx.context->setTensorAddress("scale_normalized_mean_limb_lengths", bp_ctx.d_scale_norm_limb);
-    // bp_ctx.context->setTensorAddress("mean_limb_lengths", bp_ctx.d_mean_limb);
-
-    // bp_ctx.context->setTensorAddress("pose2d", bp_ctx.d_pose2d);
-    // bp_ctx.context->setTensorAddress("pose2d_org_img", bp_ctx.d_pose2d_org);
-    // bp_ctx.context->setTensorAddress("pose25d", bp_ctx.d_pose25d);
-    // bp_ctx.context->setTensorAddress("pose3d", bp_ctx.d_pose3d);
-
     cv::Mat k_inv_float;
     this->geo.cameraMatrixInverse.convertTo(k_inv_float, CV_32F);
     k_inv_float = k_inv_float.clone();
-
-    // 3. Use standard std::memcpy to populate static Unified Memory (No cudaMemcpyAsync needed)
-    //std::memcpy(bp_ctx.d_k_inv, k_inv_float.ptr<float>(), 9 * sizeof(float));
-    //std::memcpy(bp_ctx.d_scale_norm_limb, bp_config.scale_normalized_mean_limb_lengths.data(), 36 * sizeof(float));
-    //std::memcpy(bp_ctx.d_mean_limb, bp_config.mean_limb_lengths.data(), 36 * sizeof(float));
-	// cudaMemcpy(bp_ctx.d_k_inv, k_inv_float.ptr<float>(), 9 * sizeof(float), cudaMemcpyDefault);
-    // cudaMemcpy(bp_ctx.d_scale_norm_limb, bp_config.scale_normalized_mean_limb_lengths.data(), 36 * sizeof(float), cudaMemcpyDefault);
-    // cudaMemcpy(bp_ctx.d_mean_limb, bp_config.mean_limb_lengths.data(), 36 * sizeof(float), cudaMemcpyDefault);
-
 
     return true;
 }
@@ -197,38 +154,16 @@ void pose_estimation::processAndRunBodyPose(bb_context_packet& context_packet) {
     bp_ctx.context->setTensorAddress("pose25d", context_packet.d_pose25d);
     bp_ctx.context->setTensorAddress("pose3d", context_packet.d_pose3d);
 
-    // 1. Write dynamic frame data directly to unified memory
-    //std::memcpy(bp_ctx.d_input0, blob.ptr<float>(), blob.total() * sizeof(float));
-    //std::memcpy(bp_ctx.d_t_form_inv, t_form_inv.ptr<float>(), 9 * sizeof(float));
-	// cudaMemcpy(bp_ctx.d_input0, blob.ptr<float>(), blob.total() * sizeof(float), cudaMemcpyDefault);
-    // cudaMemcpy(bp_ctx.d_t_form_inv, t_form_inv.ptr<float>(), 9 * sizeof(float), cudaMemcpyDefault);
-
-    // 2. Run Inference
     bp_ctx.context->enqueueV3(bp_ctx.stream);
 
-    // 3. Wait for GPU to finish! (No DeviceToHost copies needed)
     cudaStreamSynchronize(bp_ctx.stream);
 }
 
 void pose_estimation::cleanupBodyPose3D(BodyPoseContext& trt) {
     if (trt.stream) cudaStreamDestroy(trt.stream);
-    if (trt.d_input0) cudaFree(trt.d_input0);
-    if (trt.d_k_inv) cudaFree(trt.d_k_inv);
-    if (trt.d_t_form_inv) cudaFree(trt.d_t_form_inv);
-    if (trt.d_scale_norm_limb) cudaFree(trt.d_scale_norm_limb);
-    if (trt.d_mean_limb) cudaFree(trt.d_mean_limb);
-    if (trt.d_pose2d) cudaFree(trt.d_pose2d);
-    if (trt.d_pose2d_org) cudaFree(trt.d_pose2d_org);
-    if (trt.d_pose25d) cudaFree(trt.d_pose25d);
-    if (trt.d_pose3d) cudaFree(trt.d_pose3d);
 }
 
 int pose_estimation::setup(std::string engine_file, std::string onnx_file, cv::Size targetSize, CameraGeometry& loaded_geo, bool rebuild){
-	//load calibration data needed
-	//handle engine creation
-	//compileOnnxToEngine(onnx_file, engine_file, targetSize);
-	//initializeBodyPose3D(engine_file);
-		
 	this->geo = loaded_geo;
 		
 	 if (access(engine_file.c_str(), F_OK) == -1 || rebuild) {
@@ -248,25 +183,10 @@ int pose_estimation::setup(std::string engine_file, std::string onnx_file, cv::S
 	return 1;
 }
 
-//add reference to output data 
-int pose_estimation::run(const cv::Mat& blob, const cv::Mat& t_form_inv){
-	// processAndRunBodyPose(blob, t_form_inv);
-	return 1;
-}
-
 BodyPoseContext* pose_estimation::getContextPtr() { 
         return &bp_ctx; 
 }
 
-BodyPoseConfig* pose_estimation::getConfigPtr(){ 
-	return &bp_config; 
-}
-		//constructor
 pose_estimation::pose_estimation(CameraGeometry in_geo) {
 	geo = in_geo;
-}
-	
-		//destructor
-pose_estimation::~pose_estimation(){
-	;		
 }

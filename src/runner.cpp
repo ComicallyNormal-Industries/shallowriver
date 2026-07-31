@@ -291,7 +291,7 @@ void runner::stage3_pose() {
                 
                 // Preprocess Crop
                 auto t0 = std::chrono::steady_clock::now();
-                preprocessBodyPoseInput(p->model_input, box, bp_cfg_ptr->input_w, bp_cfg_ptr->input_h, p->d_input0, t_form_inv);
+                preprocessBodyPoseInput(p->model_input, box, input_w, input_h, p->d_input0, t_form_inv);
                 p->t_s3_pre += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 
                 // Inference
@@ -436,7 +436,6 @@ int runner::setup(int mode) {
 	}	
 
 	bp_ctx_ptr = pose_runner.getContextPtr();
-    bp_cfg_ptr = pose_runner.getConfigPtr();
 		
     bb_ctx_ptr = bbox_runner.getContextPtr();
     bb_cfg_ptr = bbox_runner.getConfigPtr();

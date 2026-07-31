@@ -198,8 +198,4 @@ class bounding_box {
 		TRTContext* getContextPtr();
 		ModelConfig* getConfigPtr();
 
-		bounding_box();
-		
-		~bounding_box();
-
 };
