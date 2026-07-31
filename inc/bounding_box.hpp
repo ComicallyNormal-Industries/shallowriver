@@ -50,44 +50,6 @@ constexpr std::array<float, 36> mean_limb_lengths = {
     0.0000f
 };
 
-// struct bb_context_packet
-// {
-
-//     // float d_input[INPUT_ELEMENTS + TRT_PADDING];
-//     // float d_bbox[BBOX_ELEMENTS + TRT_PADDING];
-//     // float d_cov[COV_ELEMENTS + TRT_PADDING];
-//     alignas(256) float d_input[INPUT_ELEMENTS + TRT_PADDING];
-//     alignas(256) float d_bbox[BBOX_ELEMENTS + TRT_PADDING];
-//     alignas(256) float d_cov[COV_ELEMENTS + TRT_PADDING];
-
-// 	uint64_t frame_id;
-// 	std::vector<cv::Rect> bboxes;
-//     std::vector<float> confidences;
-//     std::vector<int> class_ids;
-//     std::vector<int> nms_indices;
-
-// 	cv::Mat raw_frame;
-//     cv::Mat model_input;
-// 	// cv::Mat input_blob;
-
-// 	// size_t input_bytes = 1 * 3 * resolution.height * resolution.width * sizeof(float);
-
-// 	bb_context_packet() {
-//         // Pre-allocate resized BGR frame buffer (8-bit, 3 channels)
-//         // model_input.create(PEOPLENET_HEIGHT, PEOPLENET_WIDTH, CV_8UC3);
-// 		raw_frame.create(cv::Size(1920, 1080), CV_8UC3);
-
-//         // Wrap d_input directly into NCHW format (1 x 3 x Height x Width)
-//         int sizes[4] = {1, 3, PEOPLENET_HEIGHT, PEOPLENET_WIDTH};
-//         model_input = cv::Mat(4, sizes, CV_32F, d_input);
-//     }
-	
-// 	// Optional helper methods if you still need the byte counts elsewhere in your code
-//     size_t get_input_bytes() const { return INPUT_ELEMENTS * sizeof(float); }
-//     size_t get_bbox_bytes() const { return BBOX_ELEMENTS * sizeof(float); }
-//     size_t get_cov_bytes() const { return COV_ELEMENTS * sizeof(float); }
-// };
-
 struct bb_context_packet
 {
     uint64_t frame_id;
@@ -129,27 +91,6 @@ struct bb_context_packet
         cudaMallocManaged((void**)&d_pose2d_org, 1 * num_keypoints * 3 * sizeof(float));
         cudaMallocManaged((void**)&d_pose25d, 1 * num_keypoints * 4 * sizeof(float));
         cudaMallocManaged((void**)&d_pose3d, 1 * num_keypoints * 3 * sizeof(float));
-        
-        
-        //bdn code
-        /*
-        
-        cudaHostAlloc((void**)&d_input, (INPUT_ELEMENTS + TRT_PADDING) * sizeof(float), cudaHostAllocMapped);
-        cudaHostAlloc((void**)&d_bbox, (BBOX_ELEMENTS + TRT_PADDING) * sizeof(float), cudaHostAllocMapped);
-        cudaHostAlloc((void**)&d_cov, (COV_ELEMENTS + TRT_PADDING) * sizeof(float), cudaHostAllocMapped);
-
-
-        cudaHostAlloc((void**)&d_input0, 1 * 3 * input_h * input_w * sizeof(float), cudaHostAllocMapped);
-        cudaHostAlloc((void**)&d_k_inv, 1 * 3 * 3 * sizeof(float), cudaHostAllocMapped);
-        cudaHostAlloc((void**)&d_t_form_inv, 1 * 3 * 3 * sizeof(float), cudaHostAllocMapped);
-        cudaHostAlloc((void**)&d_scale_norm_limb, 1 * 36 * sizeof(float), cudaHostAllocMapped);
-        cudaHostAlloc((void**)&d_mean_limb, 1 * 36 * sizeof(float), cudaHostAllocMapped);
-
-        cudaHostAlloc((void**)&d_pose2d, 1 * num_keypoints * 3 * sizeof(float), cudaHostAllocMapped);
-        cudaHostAlloc((void**)&d_pose2d_org, 1 * num_keypoints * 3 * sizeof(float), cudaHostAllocMapped);
-        cudaHostAlloc((void**)&d_pose25d, 1 * num_keypoints * 4 * sizeof(float), cudaHostAllocMapped);
-        cudaHostAlloc((void**)&d_pose3d, 1 * num_keypoints * 3 * sizeof(float), cudaHostAllocMapped);
-        */
 
         // 2. Clear out NaN garbage strictly for the GPU arrays
         std::memset(d_input, 0, (INPUT_ELEMENTS + TRT_PADDING) * sizeof(float));
@@ -186,28 +127,7 @@ struct bb_context_packet
         if (d_pose2d_org) cudaFree(d_pose2d_org);
         if (d_pose25d) cudaFree(d_pose25d);
         if (d_pose3d) cudaFree(d_pose3d);
-        //bdn code
-        /*
-        if (d_input) cudaFreeHost(d_input);
-        if (d_bbox) cudaFreeHost(d_bbox);
-        if (d_cov) cudaFreeHost(d_cov);
 
-        if (d_input) cudaFreeHost(d_input);
-        if (d_bbox) cudaFreeHost(d_bbox);
-        if (d_cov) cudaFreeHost(d_cov);
-
-        // Body Pose Pointers
-        if (d_input0) cudaFreeHost(d_input0);
-        if (d_k_inv) cudaFreeHost(d_k_inv);
-        if (d_t_form_inv) cudaFreeHost(d_t_form_inv);
-        if (d_scale_norm_limb) cudaFreeHost(d_scale_norm_limb);
-        if (d_mean_limb) cudaFreeHost(d_mean_limb);
-        
-        if (d_pose2d) cudaFreeHost(d_pose2d);
-        if (d_pose2d_org) cudaFreeHost(d_pose2d_org);
-        if (d_pose25d) cudaFreeHost(d_pose25d);
-        if (d_pose3d) cudaFreeHost(d_pose3d);
-        */
     }
 
     // 5. Prevent accidental deep copies that would cause double-frees
@@ -264,8 +184,6 @@ class bounding_box {
 
 		TRTContext* getContextPtr();
 		ModelConfig* getConfigPtr();
-
-		void printTRTContext();
 
 		bounding_box();
 		

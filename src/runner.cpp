@@ -30,22 +30,6 @@ bool runner::loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSi
     return true;
 }
 
-// void runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, cv::Mat& model_input, cv::Mat& blob) {
-//     cv::resize(frame, model_input, target_resolution);
-//     // blob = cv::dnn::blobFromImage(out_model_input, 1.0 / 255.0, target_resolution, cv::Scalar(0,0,0), true, false);
-//     cv::dnn::blobFromImage(
-//         model_input,              // Input image
-//         blob,               // Output array (writes directly into your pre-allocated CUDA Mat)
-//         1.0 / 255.0,        // Scale factor
-//         target_resolution,  // Target size (replaces the need for cv::resize)
-//         cv::Scalar(0,0,0),  // Mean subtraction
-//         true,               // SwapRB (BGR to RGB)
-//         false,              // Crop
-//         CV_32F              // Depth
-//     );
-// }
-
-
 //bdn
 void runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, cv::Mat& model_input, bb_context_packet& bb_context) {
     
@@ -64,10 +48,6 @@ void runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, c
         false,              // Crop
         CV_32F              // Depth
     );
-
-    // 3. CRITICAL: Copy the floats from OpenCV's temporary blob directly into your pinned hardware memory
-    //bdn
-    //std::memcpy(bb_context.d_input, temp_blob.ptr<float>(), temp_blob.total() * sizeof(float));
     cudaMemcpy(bb_context.d_input, temp_blob.ptr<float>(), temp_blob.total() * sizeof(float), cudaMemcpyDefault);
 }
 
@@ -222,33 +202,6 @@ std::vector<NvAR_Point3f> runner::processBodyPoseOutput(
 
 // --- STAGE 1: Frame Capture ---
 void runner::stage1_capture() {
-    // uint64_t frame_counter = 0;
-    // while (running) {
-    //     std::cout << "here\n";
-    //     cv::Mat frame;
-    //     cap >> frame; 
-    //     if (frame.empty()) {
-    //         running = false;
-    //         break;
-    //     }
-    //     std::cout << "here1\n";
-    //     // CRITICAL FIX: Clone the frame so the capture thread doesn't overwrite it
-    //     // if (!q1_2.produce({frame_counter++, frame.clone()})) break;
-    //     // q1_2.produce_update([&](FramePacket& data) {
-    //     //     data.frame_id = frame_counter++;
-    //     //     // Reuses the buffer inside data.image if the size/type matches
-    //     //     frame.copyTo(data.raw_frame); 
-    //     // });
-    //     std::cout << "here2\n";
-    //     q1_2.produce_update([&](bb_context_packet& data) {
-    //         std::cout << "here5\n";
-    //         data.frame_id = frame_counter++;
-    //         std::cout << "here3\n";
-    //         frame.copyTo(data.raw_frame); 
-    //     });
-    //     std::cout << "here4\n";
-    // }
-    // // q1_2.stop();
 
     uint64_t frame_counter = 0;
     while (running) {
@@ -281,85 +234,6 @@ void runner::stage1_capture() {
 
 // --- STAGE 2: Model 1 (PeopleNet Bounding Box) ---
 void runner::stage2_bbox() {
-    // cudaSetDevice(0); // Bind CUDA context
-    // // FramePacket in;
-    // // while (q1_2.pop(in)) {
-    // while (true) {
-
-    //     bb_context_packet* bb_packet = q1_2.wait_and_consume();         
-
-    //     // cv::Mat model_input, input_blob;
-    //     preprocessFrame(bb_packet->raw_frame, peoplenet_resolution, bb_packet->model_input);
-        
-        
-
-    //     // 1. Inference (cudaMemcpy inside this function will now handle locks safely)
-    //     if (bbox_runner.runInference(*bb_packet))
-    //     {
-
-    //     }
-    //     else
-    //     {
-    //         break;
-    //     }
-        
-        
-    //     // 2. Wait for inference to finish writing the output
-    //     // cudaDeviceSynchronize();
-        
-    //     // 3. CLONE THE OUTPUTS to safe CPU heap memory
-    //     // int spatial_size = bb_cfg_ptr->grid_h * bb_cfg_ptr->grid_w;
-    //     // int cov_elements = bb_cfg_ptr->num_classes * spatial_size;
-    //     // int bbox_elements = bb_cfg_ptr->num_classes * 4 * spatial_size;
-
-    //     // std::vector<float> safe_cov(cov_elements);
-    //     // std::vector<float> safe_bbox(bbox_elements);
-
-    //     // cudaMemcpy(safe_cov.data(), bb_ctx_ptr->d_cov, cov_elements * sizeof(float), cudaMemcpyDefault);
-    //     // cudaMemcpy(safe_bbox.data(), bb_ctx_ptr->d_bbox, bbox_elements * sizeof(float), cudaMemcpyDefault);
-        
-    //     // 4. Postprocess using the safe CPU clones (You will need to update decodeDetections to accept these vectors)
-    //     // std::vector<cv::Rect> bboxes;
-    //     // std::vector<float> confidences;
-    //     // std::vector<int> class_ids;
-
-    //     decodeDetections(*bb_cfg_ptr, *bb_packet);
-    //     auto nms_indices = applyNMS(*bb_cfg_ptr, bb_packet->bboxes, bb_packet->confidences);
-        
-    //     renderDetections(bb_packet->model_input, *bb_cfg_ptr, *bb_packet, nms_indices);
-        
-    //     // q1_2.produce_update([&](bb_context_packet& data) {
-    //     //     data.frame_id = frame_counter++;
-    //     //     // Reuses the buffer inside data.image if the size/type matches
-    //     //     bb_packet.raw_frame.copyTo(data.raw_frame); 
-    //     //     bb_packet.blob_input.copyTo(data.blob_input);
-
-
-    //     // });
-    //     q2_3.produce_update([&](bb_context_packet& data) {
-
-    //         // 1. ZERO-COPY VECTORS: std::move transfers the internal memory pointers 
-    //         // from bb_packet directly to the queue's data without copying any elements.
-    //         data.bboxes = std::move(bb_packet->bboxes);
-    //         data.confidences = std::move(bb_packet->confidences);
-    //         data.class_ids = std::move(bb_packet->class_ids);
-    //         data.nms_indices = std::move(bb_packet->nms_indices);
-
-    //         // 2. ZERO-COPY CPU MAT: std::move transfers the OpenCV header and reference count.
-    //         // It points data.raw_frame to the exact same pixel memory as bb_packet.raw_frame.
-    //         data.raw_frame = std::move(bb_packet->raw_frame);
-
-    //         // 3. CUDA-MAPPED MAT: You CANNOT use std::move here.
-    //         // Because data.model_input is mapped to your fixed unified memory array (d_input), 
-    //         // std::move would destroy that mapping. You must use copyTo() so it writes 
-    //         // the underlying float values directly into the CUDA d_input array.
-    //         // if (!bb_packet->model_input.empty()) {
-    //         //     bb_packet->model_input.copyTo(data.model_input);
-    //         // }
-    //     });
-    //     // if (!q2_3.push({in.frame_id, in.raw_frame, model_input, bboxes, confidences, class_ids, nms_indices})) break;
-    // }
-    // q2_3.stop();
     cudaSetDevice(0); 
 
     while (true) {
@@ -437,29 +311,7 @@ void runner::stage3_pose() {
 
                 // 2. Inference
                 pose_runner.processAndRunBodyPose(*p);
-                // pose_runner.run(crop_blob, t_form_inv);
 
-                // 3. Wait for GPU to finish inference
-                // cudaDeviceSynchronize();
-
-                // 4. CLONE THE OUTPUTS to safe CPU memory
-                // int num_kpts = p->num_keypoints;
-                
-                // std::vector<float> safe_pose25d(num_kpts * 4);
-                // std::vector<float> safe_pose3d(num_kpts * 3);
-                // std::vector<float> safe_pose2d(num_kpts * 3);
-
-                // cudaMemcpy(safe_pose25d.data(), bp_ctx_ptr->d_pose25d, num_kpts * 4 * sizeof(float), cudaMemcpyDefault);
-                // cudaMemcpy(safe_pose3d.data(), bp_ctx_ptr->d_pose3d, num_kpts * 3 * sizeof(float), cudaMemcpyDefault);
-                // cudaMemcpy(safe_pose2d.data(), bp_ctx_ptr->d_pose2d, num_kpts * 3 * sizeof(float), cudaMemcpyDefault);
-
-                // 5. Postprocess using safe CPU vectors
-                // std::vector<NvAR_Point3f> final_3d = processBodyPoseOutput(
-                //     safe_pose25d.data(), safe_pose3d.data(),
-                //     num_kpts, box,
-                //     bp_cfg_ptr->input_w, bp_cfg_ptr->input_h,
-                //     pose_runner.geo.cameraMatrixOrig
-                // );
                 std::vector<NvAR_Point3f> final_3d = processBodyPoseOutput(
                     p->d_pose25d, p->d_pose3d,
                     num_keypoints, box,
