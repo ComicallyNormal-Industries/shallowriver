@@ -133,30 +133,30 @@ bool pose_estimation::initializeBodyPose3D(const std::string& engine_file) {
     cudaStreamCreate(&bp_ctx.stream);
 
     // 1. Allocate Unified Memory directly to the pointers
-    cudaMallocManaged((void**)&bp_ctx.d_input0, 1 * 3 * bp_config.input_h * bp_config.input_w * sizeof(float));
-    cudaMallocManaged((void**)&bp_ctx.d_k_inv, 1 * 3 * 3 * sizeof(float));
-    cudaMallocManaged((void**)&bp_ctx.d_t_form_inv, 1 * 3 * 3 * sizeof(float));
-    cudaMallocManaged((void**)&bp_ctx.d_scale_norm_limb, 1 * 36 * sizeof(float));
-    cudaMallocManaged((void**)&bp_ctx.d_mean_limb, 1 * 36 * sizeof(float));
+    // cudaMallocManaged((void**)&bp_ctx.d_input0, 1 * 3 * bp_config.input_h * bp_config.input_w * sizeof(float));
+    // cudaMallocManaged((void**)&bp_ctx.d_k_inv, 1 * 3 * 3 * sizeof(float));
+    // cudaMallocManaged((void**)&bp_ctx.d_t_form_inv, 1 * 3 * 3 * sizeof(float));
+    // cudaMallocManaged((void**)&bp_ctx.d_scale_norm_limb, 1 * 36 * sizeof(float));
+    // cudaMallocManaged((void**)&bp_ctx.d_mean_limb, 1 * 36 * sizeof(float));
 
-    cudaMallocManaged((void**)&bp_ctx.d_pose2d, 1 * bp_config.num_keypoints * 3 * sizeof(float));
-    cudaMallocManaged((void**)&bp_ctx.d_pose2d_org, 1 * bp_config.num_keypoints * 3 * sizeof(float));
-    cudaMallocManaged((void**)&bp_ctx.d_pose25d, 1 * bp_config.num_keypoints * 4 * sizeof(float));
-    cudaMallocManaged((void**)&bp_ctx.d_pose3d, 1 * bp_config.num_keypoints * 3 * sizeof(float));
+    // cudaMallocManaged((void**)&bp_ctx.d_pose2d, 1 * bp_config.num_keypoints * 3 * sizeof(float));
+    // cudaMallocManaged((void**)&bp_ctx.d_pose2d_org, 1 * bp_config.num_keypoints * 3 * sizeof(float));
+    // cudaMallocManaged((void**)&bp_ctx.d_pose25d, 1 * bp_config.num_keypoints * 4 * sizeof(float));
+    // cudaMallocManaged((void**)&bp_ctx.d_pose3d, 1 * bp_config.num_keypoints * 3 * sizeof(float));
 
     // (Host vector .resize() calls removed from here)
 
     // 2. Set Tensor Addresses
-    bp_ctx.context->setTensorAddress("input0", bp_ctx.d_input0);
-    bp_ctx.context->setTensorAddress("k_inv", bp_ctx.d_k_inv);
-    bp_ctx.context->setTensorAddress("t_form_inv", bp_ctx.d_t_form_inv);
-    bp_ctx.context->setTensorAddress("scale_normalized_mean_limb_lengths", bp_ctx.d_scale_norm_limb);
-    bp_ctx.context->setTensorAddress("mean_limb_lengths", bp_ctx.d_mean_limb);
+    // bp_ctx.context->setTensorAddress("input0", bp_ctx.d_input0);
+    // bp_ctx.context->setTensorAddress("k_inv", bp_ctx.d_k_inv);
+    // bp_ctx.context->setTensorAddress("t_form_inv", bp_ctx.d_t_form_inv);
+    // bp_ctx.context->setTensorAddress("scale_normalized_mean_limb_lengths", bp_ctx.d_scale_norm_limb);
+    // bp_ctx.context->setTensorAddress("mean_limb_lengths", bp_ctx.d_mean_limb);
 
-    bp_ctx.context->setTensorAddress("pose2d", bp_ctx.d_pose2d);
-    bp_ctx.context->setTensorAddress("pose2d_org_img", bp_ctx.d_pose2d_org);
-    bp_ctx.context->setTensorAddress("pose25d", bp_ctx.d_pose25d);
-    bp_ctx.context->setTensorAddress("pose3d", bp_ctx.d_pose3d);
+    // bp_ctx.context->setTensorAddress("pose2d", bp_ctx.d_pose2d);
+    // bp_ctx.context->setTensorAddress("pose2d_org_img", bp_ctx.d_pose2d_org);
+    // bp_ctx.context->setTensorAddress("pose25d", bp_ctx.d_pose25d);
+    // bp_ctx.context->setTensorAddress("pose3d", bp_ctx.d_pose3d);
 
     cv::Mat k_inv_float;
     this->geo.cameraMatrixInverse.convertTo(k_inv_float, CV_32F);
@@ -166,9 +166,9 @@ bool pose_estimation::initializeBodyPose3D(const std::string& engine_file) {
     //std::memcpy(bp_ctx.d_k_inv, k_inv_float.ptr<float>(), 9 * sizeof(float));
     //std::memcpy(bp_ctx.d_scale_norm_limb, bp_config.scale_normalized_mean_limb_lengths.data(), 36 * sizeof(float));
     //std::memcpy(bp_ctx.d_mean_limb, bp_config.mean_limb_lengths.data(), 36 * sizeof(float));
-	cudaMemcpy(bp_ctx.d_k_inv, k_inv_float.ptr<float>(), 9 * sizeof(float), cudaMemcpyDefault);
-    cudaMemcpy(bp_ctx.d_scale_norm_limb, bp_config.scale_normalized_mean_limb_lengths.data(), 36 * sizeof(float), cudaMemcpyDefault);
-    cudaMemcpy(bp_ctx.d_mean_limb, bp_config.mean_limb_lengths.data(), 36 * sizeof(float), cudaMemcpyDefault);
+	// cudaMemcpy(bp_ctx.d_k_inv, k_inv_float.ptr<float>(), 9 * sizeof(float), cudaMemcpyDefault);
+    // cudaMemcpy(bp_ctx.d_scale_norm_limb, bp_config.scale_normalized_mean_limb_lengths.data(), 36 * sizeof(float), cudaMemcpyDefault);
+    // cudaMemcpy(bp_ctx.d_mean_limb, bp_config.mean_limb_lengths.data(), 36 * sizeof(float), cudaMemcpyDefault);
 
 
     return true;
@@ -184,12 +184,24 @@ std::vector<char> pose_estimation::loadEngineFile(const std::string& filename) {
     return buffer;
 }
 		
-void pose_estimation::processAndRunBodyPose(const cv::Mat& blob, const cv::Mat& t_form_inv) {
+void pose_estimation::processAndRunBodyPose(bb_context_packet& context_packet) {
+
+    bp_ctx.context->setTensorAddress("input0", context_packet.d_input0);
+    bp_ctx.context->setTensorAddress("k_inv", context_packet.d_k_inv);
+    bp_ctx.context->setTensorAddress("t_form_inv", context_packet.d_t_form_inv);
+    bp_ctx.context->setTensorAddress("scale_normalized_mean_limb_lengths", context_packet.d_scale_norm_limb);
+    bp_ctx.context->setTensorAddress("mean_limb_lengths", context_packet.d_mean_limb);
+
+    bp_ctx.context->setTensorAddress("pose2d", context_packet.d_pose2d);
+    bp_ctx.context->setTensorAddress("pose2d_org_img", context_packet.d_pose2d_org);
+    bp_ctx.context->setTensorAddress("pose25d", context_packet.d_pose25d);
+    bp_ctx.context->setTensorAddress("pose3d", context_packet.d_pose3d);
+
     // 1. Write dynamic frame data directly to unified memory
     //std::memcpy(bp_ctx.d_input0, blob.ptr<float>(), blob.total() * sizeof(float));
     //std::memcpy(bp_ctx.d_t_form_inv, t_form_inv.ptr<float>(), 9 * sizeof(float));
-	cudaMemcpy(bp_ctx.d_input0, blob.ptr<float>(), blob.total() * sizeof(float), cudaMemcpyDefault);
-    cudaMemcpy(bp_ctx.d_t_form_inv, t_form_inv.ptr<float>(), 9 * sizeof(float), cudaMemcpyDefault);
+	// cudaMemcpy(bp_ctx.d_input0, blob.ptr<float>(), blob.total() * sizeof(float), cudaMemcpyDefault);
+    // cudaMemcpy(bp_ctx.d_t_form_inv, t_form_inv.ptr<float>(), 9 * sizeof(float), cudaMemcpyDefault);
 
     // 2. Run Inference
     bp_ctx.context->enqueueV3(bp_ctx.stream);
@@ -238,7 +250,7 @@ int pose_estimation::setup(std::string engine_file, std::string onnx_file, cv::S
 
 //add reference to output data 
 int pose_estimation::run(const cv::Mat& blob, const cv::Mat& t_form_inv){
-	processAndRunBodyPose(blob, t_form_inv);
+	// processAndRunBodyPose(blob, t_form_inv);
 	return 1;
 }
 

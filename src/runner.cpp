@@ -30,19 +30,41 @@ bool runner::loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSi
     return true;
 }
 
-void runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, cv::Mat& blob) {
-    // cv::resize(frame, out_model_input, target_resolution);
-    // blob = cv::dnn::blobFromImage(out_model_input, 1.0 / 255.0, target_resolution, cv::Scalar(0,0,0), true, false);
+// void runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, cv::Mat& model_input, cv::Mat& blob) {
+//     cv::resize(frame, model_input, target_resolution);
+//     // blob = cv::dnn::blobFromImage(out_model_input, 1.0 / 255.0, target_resolution, cv::Scalar(0,0,0), true, false);
+//     cv::dnn::blobFromImage(
+//         model_input,              // Input image
+//         blob,               // Output array (writes directly into your pre-allocated CUDA Mat)
+//         1.0 / 255.0,        // Scale factor
+//         target_resolution,  // Target size (replaces the need for cv::resize)
+//         cv::Scalar(0,0,0),  // Mean subtraction
+//         true,               // SwapRB (BGR to RGB)
+//         false,              // Crop
+//         CV_32F              // Depth
+//     );
+// }
+
+void runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, cv::Mat& model_input, cv::Mat& blob, bb_context_packet& bb_context) {
+    
+    // 1. Resize the 2D image
+    cv::resize(frame, model_input, target_resolution);
+    
+    // 2. Let OpenCV generate the 4D tensor in its own temporary CPU memory
+    cv::Mat temp_blob;
     cv::dnn::blobFromImage(
-        frame,              // Input image
-        blob,               // Output array (writes directly into your pre-allocated CUDA Mat)
+        model_input,        // Input image
+        temp_blob,          // Output array (OpenCV owns this temporary memory)
         1.0 / 255.0,        // Scale factor
-        target_resolution,  // Target size (replaces the need for cv::resize)
+        cv::Size(),         // Target size (already resized)
         cv::Scalar(0,0,0),  // Mean subtraction
         true,               // SwapRB (BGR to RGB)
         false,              // Crop
         CV_32F              // Depth
     );
+
+    // 3. CRITICAL: Copy the floats from OpenCV's temporary blob directly into your pinned hardware memory
+    std::memcpy(bb_context.d_input, temp_blob.ptr<float>(), temp_blob.total() * sizeof(float));
 }
 
 void runner::decodeDetections(const ModelConfig& cfg, bb_context_packet& bb_context) {
@@ -145,7 +167,7 @@ void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Re
 
     cv::Mat t_form_inv_double = t_form_3x3.inv(); 
     t_form_inv_double.convertTo(out_t_form_inv, CV_32F);
-    out_t_form_inv = out_t_form_inv.clone();
+    // out_t_form_inv = out_t_form_inv.clone();
 
     //warp the frame (OpenCV automatically pads empty space with black)
     cv::Mat cropped_person;
@@ -226,6 +248,7 @@ void runner::stage1_capture() {
 
     uint64_t frame_counter = 0;
     while (running) {
+        std::cout << "here0\n";
         cv::Mat frame;
         cap >> frame; 
         if (frame.empty()) break;
@@ -237,13 +260,18 @@ void runner::stage1_capture() {
         // 2. Write data directly into the packet
         p->frame_id = frame_counter++;
         frame.copyTo(p->raw_frame);
+        p->bboxes.clear();
+        p->confidences.clear();
+        p->class_ids.clear();
+        p->nms_indices.clear();
 
         // 3. Hand the pointer to the queue
         q1_2.produce_update([&](PacketPtr& queue_slot) {
             // If the queue slot already holds a pointer that Stage 2 never read (dropped frame),
             // overwriting it here drops its ref-count to 0, instantly returning it to the pool!
-            queue_slot = p; 
+            queue_slot = std::move(p);
         });
+        std::cout << "here1\n";
     }
 }
 
@@ -331,6 +359,7 @@ void runner::stage2_bbox() {
     cudaSetDevice(0); 
 
     while (true) {
+        std::cout << "here2\n";
         // wait_and_consume returns a pointer to the queue's internal slot (PacketPtr*)
         PacketPtr* in_slot = q1_2.wait_and_consume();
         if (in_slot == nullptr) continue;
@@ -338,13 +367,25 @@ void runner::stage2_bbox() {
         // Take a copy of the shared_ptr so we maintain ownership of the memory
         PacketPtr p = *in_slot; 
 
+        if (!p) {
+            std::cerr << "[Warning] Stage 2 received a null packet." << std::endl;
+            continue; 
+        }
+
         // preprocess and run inference directly on p...
-        preprocessFrame(p->raw_frame, peoplenet_resolution, p->model_input);
+
+        preprocessFrame(p->raw_frame, peoplenet_resolution, p->model_input, p->blob, *p);
         bbox_runner.runInference(*p);
+
+        decodeDetections(*bb_cfg_ptr, *p);
+        auto nms_indices = applyNMS(*bb_cfg_ptr, p->bboxes, p->confidences);
         
+        renderDetections(p->model_input, *bb_cfg_ptr, *p, nms_indices);
+
+        std::cout << "here3\n";
         // Pass the EXACT SAME POINTER to Stage 3
         q2_3.produce_update([&](PacketPtr& queue_slot) {
-            queue_slot = p; 
+            queue_slot = std::move(p);
         });
     }
 }
@@ -352,90 +393,115 @@ void runner::stage2_bbox() {
 // --- STAGE 3: Model 2 (Body Pose 3D) ---
 void runner::stage3_pose() {
     cudaSetDevice(0); // Bind CUDA context
-    bb_context_packet* in;
+    // bb_context_packet* in;
     // while (q2_3.pop(in)) {
     while (true) {
 
+        std::cout << "here4\n";
         PacketPtr* in_slot = q2_3.wait_and_consume();
+        PacketPtr p = *in_slot; 
+        if (!p) {
+            std::cerr << "[Warning] Stage 2 received a null packet." << std::endl;
+            continue; 
+        }
         // in = q2_3.wait_and_consume();
 
         // --- VIEW THE FRAME AT THE START OF STAGE 3 ---
 
-        // cv::imshow("Stage 3 Input", in->model_input);
+        // cv::imshow("Stage 3 Input", in->raw_frame);
         // cv::waitKey(1); // Refresh the GUI window (1ms delay)
-        
-        continue;
+        std::cout << "here5\n";
+        // continue;
 
         // Loop through all detected people
-        for (int idx : in->nms_indices) {
-            if (in->class_ids[idx] == 0) { 
-                cv::Rect box = in->bboxes[idx];
+        for (int idx : p->nms_indices) {
+            if (p->class_ids[idx] == 0) { 
+                cv::Rect box = p->bboxes[idx];
                 box.x = std::max(0, box.x - 10);
                 box.y = std::max(0, box.y - 10);
-                box.width = std::min(in->model_input.cols - box.x, box.width + 20);
-                box.height = std::min(in->model_input.rows - box.y, box.height + 20);
+                box.width = std::min(p->model_input.cols - box.x, box.width + 20);
+                box.height = std::min(p->model_input.rows - box.y, box.height + 20);
 
                 cv::Mat crop_blob, t_form_inv;
                 
                 // 1. Preprocess Crop
-                preprocessBodyPoseInput(in->model_input, box, bp_cfg_ptr->input_w, bp_cfg_ptr->input_h, crop_blob, t_form_inv);
+                preprocessBodyPoseInput(p->model_input, box, bp_cfg_ptr->input_w, bp_cfg_ptr->input_h, p->model_input, t_form_inv);
 
                 // 2. Inference
-                pose_runner.run(crop_blob, t_form_inv);
+                pose_runner.processAndRunBodyPose(*p);
+                // pose_runner.run(crop_blob, t_form_inv);
 
                 // 3. Wait for GPU to finish inference
-                cudaDeviceSynchronize();
+                // cudaDeviceSynchronize();
 
                 // 4. CLONE THE OUTPUTS to safe CPU memory
-                int num_kpts = bp_cfg_ptr->num_keypoints;
+                // int num_kpts = p->num_keypoints;
                 
-                std::vector<float> safe_pose25d(num_kpts * 4);
-                std::vector<float> safe_pose3d(num_kpts * 3);
-                std::vector<float> safe_pose2d(num_kpts * 3);
+                // std::vector<float> safe_pose25d(num_kpts * 4);
+                // std::vector<float> safe_pose3d(num_kpts * 3);
+                // std::vector<float> safe_pose2d(num_kpts * 3);
 
-                cudaMemcpy(safe_pose25d.data(), bp_ctx_ptr->d_pose25d, num_kpts * 4 * sizeof(float), cudaMemcpyDefault);
-                cudaMemcpy(safe_pose3d.data(), bp_ctx_ptr->d_pose3d, num_kpts * 3 * sizeof(float), cudaMemcpyDefault);
-                cudaMemcpy(safe_pose2d.data(), bp_ctx_ptr->d_pose2d, num_kpts * 3 * sizeof(float), cudaMemcpyDefault);
+                // cudaMemcpy(safe_pose25d.data(), bp_ctx_ptr->d_pose25d, num_kpts * 4 * sizeof(float), cudaMemcpyDefault);
+                // cudaMemcpy(safe_pose3d.data(), bp_ctx_ptr->d_pose3d, num_kpts * 3 * sizeof(float), cudaMemcpyDefault);
+                // cudaMemcpy(safe_pose2d.data(), bp_ctx_ptr->d_pose2d, num_kpts * 3 * sizeof(float), cudaMemcpyDefault);
 
                 // 5. Postprocess using safe CPU vectors
+                // std::vector<NvAR_Point3f> final_3d = processBodyPoseOutput(
+                //     safe_pose25d.data(), safe_pose3d.data(),
+                //     num_kpts, box,
+                //     bp_cfg_ptr->input_w, bp_cfg_ptr->input_h,
+                //     pose_runner.geo.cameraMatrixOrig
+                // );
                 std::vector<NvAR_Point3f> final_3d = processBodyPoseOutput(
-                    safe_pose25d.data(), safe_pose3d.data(),
-                    num_kpts, box,
-                    bp_cfg_ptr->input_w, bp_cfg_ptr->input_h,
+                    p->d_pose25d, p->d_pose3d,
+                    num_keypoints, box,
+                    input_w, input_h,
                     pose_runner.geo.cameraMatrixOrig
                 );
                 p_logger.log_keypoints(final_3d);
 
                 // 6. Draw Skeleton using safe CPU vector
-                for (int k = 0; k < num_kpts; ++k) {
-                    float kx = safe_pose2d[k * 3 + 0];
-                    float ky = safe_pose2d[k * 3 + 1];
-                    float conf = safe_pose2d[k * 3 + 2];
+                for (int k = 0; k < num_keypoints; ++k) {
+                    float kx = p->d_pose2d[k * 3 + 0];
+                    float ky = p->d_pose2d[k * 3 + 1];
+                    float conf = p->d_pose2d[k * 3 + 2];
                     if (conf > 0.5f) {
                         int ax = static_cast<int>(t_form_inv.at<float>(0, 0) * kx + t_form_inv.at<float>(0, 1) * ky + t_form_inv.at<float>(0, 2));
                         int ay = static_cast<int>(t_form_inv.at<float>(1, 0) * kx + t_form_inv.at<float>(1, 1) * ky + t_form_inv.at<float>(1, 2));
-                        cv::circle(in->model_input, cv::Point(ax, ay), 4, cv::Scalar(0, 255, 255), -1);
+                        cv::circle(p->model_input, cv::Point(ax, ay), 4, cv::Scalar(0, 255, 255), -1);
                     }
                 }
             }
         }
         
+        q3_4.produce_update([&](PacketPtr& queue_slot) {
+            queue_slot = std::move(p);
+        });
         // Push to output
-        if (!q3_4.push({in->frame_id, in->model_input})) break;
+        // if (!q3_4.push({in->frame_id, in->model_input})) break;
     }
-    q3_4.stop();
+    // q3_4.stop();
 }
 
 // --- STAGE 4: Output Display ---
 void runner::stage4_output() {
-    RenderPacket in;
+    // // RenderPacket in;
+    // bb_context_packet* in;
     
     // Setup FPS tracking variables
     auto fps_start_time = std::chrono::steady_clock::now();
     int frame_count = 0;
     double current_fps = 0.0;
 
-    while (q3_4.pop(in)) {
+    while (true) {
+
+        PacketPtr* in_slot = q3_4.wait_and_consume();
+        PacketPtr p = *in_slot; 
+        if (!p) {
+            std::cerr << "[Warning] Stage 2 received a null packet." << std::endl;
+            continue; 
+        }
+
         // Increment frames processed
         frame_count++;
         auto current_time = std::chrono::steady_clock::now();
@@ -450,11 +516,11 @@ void runner::stage4_output() {
 
         // Draw the FPS metric onto the frame (Green text, top left)
         std::string fps_label = "Pipeline FPS: " + cv::format("%.1f", current_fps);
-        cv::putText(in.final_frame, fps_label, cv::Point(15, 40), 
+        cv::putText(p->model_input, fps_label, cv::Point(15, 40), 
                     cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
 
         // Display the output
-        cv::imshow("Active TensorRT 10 Framework Output", in.final_frame);
+        cv::imshow("Active TensorRT 10 Framework Output", p->model_input);
         
         if (cv::waitKey(1) == 27) { // ESC key
             running = false;
@@ -462,7 +528,7 @@ void runner::stage4_output() {
             // Stop queues to unblock sleeping threads
             // q1_2.stop();
             // q2_3.stop();
-            q3_4.stop();
+            // q3_4.stop();
             break;
         }
     }
@@ -525,17 +591,20 @@ int runner::run(int mode) {
     std::cout << "Starting 4-Stage Asynchronous Pipeline..." << std::endl;
     running = true;
 
+    global_pool.initialize(10);
+    std::cout << "initialize threads\n";
     // Spawn 4 pipeline threads
     std::thread t1(&runner::stage1_capture, this);
     std::thread t2(&runner::stage2_bbox, this);
     std::thread t3(&runner::stage3_pose, this);
-    std::thread t4(&runner::stage4_output, this);
-
+    // std::thread t4(&runner::stage4_output, this);
+    stage4_output();
     // Wait for shutdown
     t1.join();
     t2.join();
     t3.join();
-    t4.join();
+    
+    // t4.join();
 
     std::cout << "Pipeline shut down gracefully." << std::endl;
     return 0;

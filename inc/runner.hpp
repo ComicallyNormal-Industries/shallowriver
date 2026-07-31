@@ -77,7 +77,7 @@ class runner {
 
 		bool loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSize, cv::Size targetSize, CameraGeometry& outGeo);
 
-		void preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, cv::Mat& blob);
+		void preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, cv::Mat& input_model, cv::Mat& blob, bb_context_packet& bb_context);
 
 		void decodeDetections(const ModelConfig& cfg, bb_context_packet& bb_context);
 		
@@ -94,7 +94,7 @@ class runner {
 
 		SPSCLatestValueCuda<PacketPtr>  q1_2{};
     	SPSCLatestValueCuda<PacketPtr>   q2_3{};
-    	BoundedQueue<RenderPacket> q3_4{3};
+    	SPSCLatestValueCuda<PacketPtr> q3_4{};
 
 		void stage1_capture();
     	void stage2_bbox();

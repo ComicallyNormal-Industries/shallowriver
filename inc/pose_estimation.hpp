@@ -7,6 +7,8 @@
 #include <NvInfer.h>
 #include <NvOnnxParser.h>
 #include <unistd.h>
+#include <bounding_box.hpp>
+
 #pragma once
 
 struct CameraGeometry {
@@ -57,19 +59,19 @@ struct BodyPoseContext {
 };
 
 class pose_estimation {
-	private:
-
+	// private:
+	public:
 		bool compileOnnxToEngine(const std::string& onnxPath, const std::string& enginePath, cv::Size targetSize);
 
 		bool initializeBodyPose3D(const std::string& engine_file);
 
 		std::vector<char> loadEngineFile(const std::string& filename);
 		
-		void processAndRunBodyPose(const cv::Mat& blob, const cv::Mat& t_form_inv);
+		void processAndRunBodyPose(bb_context_packet& context_packet);
 
 		void cleanupBodyPose3D(BodyPoseContext& trt);
 
-	public:
+	
 
 		 CameraGeometry geo;
 
