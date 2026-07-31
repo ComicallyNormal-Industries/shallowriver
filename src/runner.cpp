@@ -45,7 +45,9 @@ bool runner::loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSi
 //     );
 // }
 
-void runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, cv::Mat& model_input, cv::Mat& blob, bb_context_packet& bb_context) {
+
+//bdn
+void runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, cv::Mat& model_input, bb_context_packet& bb_context) {
     
     // 1. Resize the 2D image
     cv::resize(frame, model_input, target_resolution);
@@ -378,7 +380,7 @@ void runner::stage2_bbox() {
 
         // preprocess and run inference directly on p...
 
-        preprocessFrame(p->raw_frame, peoplenet_resolution, p->model_input, p->blob, *p);
+        preprocessFrame(p->raw_frame, peoplenet_resolution, p->model_input, *p);
         bbox_runner.runInference(*p);
 
         decodeDetections(*bb_cfg_ptr, *p);

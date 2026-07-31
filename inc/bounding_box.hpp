@@ -98,7 +98,8 @@ struct bb_context_packet
 
     cv::Mat raw_frame;
     cv::Mat model_input;
-    cv::Mat blob;
+    //bdn
+    //cv::Mat blob;
 
     // CUDA Pointers (No longer fixed-size arrays)
     float* d_input = nullptr;
@@ -165,7 +166,7 @@ struct bb_context_packet
         // blob.create(cv::Size(960, 544), CV_8UC3);
 
         int sizes[4] = {1, 3, PEOPLENET_HEIGHT, PEOPLENET_WIDTH};
-        blob = cv::Mat(4, sizes, CV_32F, d_input);
+        //blob = cv::Mat(4, sizes, CV_32F, d_input);
     }
     
     // 4. Clean up CUDA memory safely when the packet is destroyed
