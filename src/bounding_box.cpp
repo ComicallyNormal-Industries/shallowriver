@@ -12,10 +12,7 @@ bool bounding_box::compileOnnxToEngine(const std::string& onnxPath, const std::s
 	nvinfer1::IBuilder* builder = nvinfer1::createInferBuilder(gLogger);
 	if (!builder) return false;
 
-	// Use strongly typed network configurations (TensorRT 10 native pattern)
-	//uint32_t flags = 1U << static_cast<uint32_t>(nvinfer1::NetworkDefinitionCreationFlag::kSTRONGLY_TYPED);
 	uint32_t flags = 0;	
-	//nvinfer1::INetworkDefinition* network = builder->createNetworkV2(flags);
 	nvinfer1::INetworkDefinition* network = builder->createNetworkV2(flags);
 	nvonnxparser::IParser* parser = nvonnxparser::createParser(*network, gLogger);
 
@@ -118,7 +115,6 @@ bool bounding_box::compileOnnxToEngine(const std::string& onnxPath, const std::s
     return true;
 }
 
-
 std::vector<char> bounding_box::loadEngineFile(const std::string& filename) {
     std::ifstream file(filename, std::ios::binary | std::ios::ate);
     if (!file.good()) return {};
@@ -143,16 +139,9 @@ bool bounding_box::initializeTRT(const std::string& engine_file, const cv::Size&
 }
 
 bool bounding_box::runInference(bb_context_packet& bb_context) {
-
-
-    bool b1 = trt_ctx.context->setTensorAddress("input_1:0", bb_context.d_input);
-    bool b2 = trt_ctx.context->setTensorAddress("output_bbox/BiasAdd:0", bb_context.d_bbox);
-    bool b3 = trt_ctx.context->setTensorAddress("output_cov/Sigmoid:0", bb_context.d_cov);
-    
-    // if (!b1 || !b2 || !b3) {
-    //     std::cerr << "[FATAL] setTensorAddress failed. Check your tensor names!" << std::endl;
-    //     return false;
-    // }
+    trt_ctx.context->setTensorAddress("input_1:0", bb_context.d_input);
+    trt_ctx.context->setTensorAddress("output_bbox/BiasAdd:0", bb_context.d_bbox);
+    trt_ctx.context->setTensorAddress("output_cov/Sigmoid:0", bb_context.d_cov);
 
     trt_ctx.context->setInputShape("input_1:0", nvinfer1::Dims4{1, 3, PEOPLENET_HEIGHT, PEOPLENET_WIDTH});
 
@@ -172,8 +161,7 @@ void bounding_box::cleanupTRT() {
 }
 
 int bounding_box::setup(std::string engine_file, std::string onnx_file, cv::Size targetSize, bool rebuild){
-
-	    // Check & Compile Engine PeopleNet
+    // Check & Compile Engine PeopleNet
     if (access(engine_file.c_str(), F_OK) == -1 || rebuild) {
         std::cout << "Notice: Compiled execution target file '" << engine_file << "' not found." << std::endl;
         if (!compileOnnxToEngine(onnx_file, engine_file, targetSize)) {
@@ -182,19 +170,13 @@ int bounding_box::setup(std::string engine_file, std::string onnx_file, cv::Size
         }
     }
 
-	    // Initialize TensorRT Runtime
+    // Initialize TensorRT Runtime
     if (!initializeTRT(engine_file, targetSize)) {
         std::cerr << "Error: Failed to initialize TensorRT." << std::endl;
         return -1;
     }
 	return 1;
 
-}
-
-int bounding_box::run(cv::Mat& input_blob){
-	// runInference(input_blob);
-	//printTRTContext();	
-	return 1;
 }
 
 TRTContext* bounding_box::getContextPtr() { 

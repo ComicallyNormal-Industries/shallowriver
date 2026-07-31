@@ -60,7 +60,6 @@ void runner::decodeDetections(const ModelConfig& cfg, bb_context_packet& bb_cont
 
                 int cov_offset = (c * stride_spatial) + (y * cfg.grid_w) + x;
                 
-                // UPDATED: Reading from the safe CPU vector instead of Unified Memory
                 float confidence = bb_context.d_cov[cov_offset];
 
                 if (confidence >= cfg.conf_threshold) {
@@ -161,7 +160,6 @@ void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Re
     cudaMemcpy(d_input0_ptr, temp_blob.ptr<float>(), temp_blob.total() * sizeof(float), cudaMemcpyDefault);
 }
 
-// CHANGED: The first two arguments are now const float* instead of const std::vector<float>&
 std::vector<NvAR_Point3f> runner::processBodyPoseOutput(
         const float* pose25d,
         const float* pose3d_raw,
