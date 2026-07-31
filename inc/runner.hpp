@@ -57,24 +57,6 @@ class runner {
 		std::string text_log_file;
 
 		std::string gst_pipeline = "v4l2src device=/dev/video0 io-mode=2 ! image/jpeg, width=1920, height=1080, framerate=30/1 ! nvv4l2decoder mjpeg=1 ! nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! video/x-raw, format=BGR ! appsink";
-		// std::string gst_pipeline = 
-        // "v4l2src device=/dev/video0 ! "
-        // "image/jpeg, width=1920, height=1080, framerate=30/1 ! "
-        // "nvv4l2decoder mjpeg=1 ! "           // 1. Hardware decode the MJPEG
-        // "nvvidconv ! "                       // 2. Hardware-accelerated memory copy out of NVMM
-        // "video/x-raw, format=BGRx ! "        // 3. Output as 4-channel BGR (nvvidconv requirement)
-        // "videoconvert ! "                    // 4. Standard CPU conversion
-        // "video/x-raw, format=BGR ! "         // 5. Drop the alpha channel for standard OpenCV 3-channel
-        // "appsink drop=true sync=false";
-
-		    // gst_pipeline = 
-        // "v4l2src device=/dev/video0 ! "
-        // "image/jpeg, width=1920, height=1080, framerate=30/1 ! "
-        // "nvjpegdec ! "
-        // "video/x-raw ! "
-        // "videoconvert ! "
-        // "video/x-raw, format=BGR ! "
-        // "appsink drop=true sync=false";
 
 		CameraGeometry geo;
 
