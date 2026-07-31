@@ -125,50 +125,6 @@ void runner::renderDetections(cv::Mat& output_image, const ModelConfig& cfg, bb_
     }
 }
 
-// void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Rect& person_box, int input_w, int input_h, cv::Mat& out_blob, cv::Mat& out_t_form_inv) {
-   
-// 	//Calculate the scale factor to preserve the aspect ratio
-//     float scale = std::min(static_cast<float>(input_w) / person_box.width, 
-//                            static_cast<float>(input_h) / person_box.height);
-
-//     //Calculate the centering offsets (this creates the black padding)
-//     float scaled_w = person_box.width * scale;
-//     float scaled_h = person_box.height * scale;
-//     float dx = (input_w - scaled_w) / 2.0f;
-//     float dy = (input_h - scaled_h) / 2.0f;
-
-//     //Map the pixels from the original frame into the padded 192x256 target
-//     cv::Mat t_form = (cv::Mat_<float>(2, 3) << 
-//         scale, 0.0f, -person_box.x * scale + dx,
-//         0.0f, scale, -person_box.y * scale + dy
-//     );
-
-//     //Create the 3x3 Inverse Transform Matrix for the GPU
-//     cv::Mat t_form_3x3 = cv::Mat::eye(3, 3, CV_32F);
-//     t_form.copyTo(t_form_3x3(cv::Rect(0, 0, 3, 2))); 
-
-//     cv::Mat t_form_inv_double = t_form_3x3.inv(); 
-//     t_form_inv_double.convertTo(out_t_form_inv, CV_32F);
-//     // out_t_form_inv = out_t_form_inv.clone();
-
-//     //warp the frame (OpenCV automatically pads empty space with black)
-//     // cv::Mat cropped_person;
-//     // cv::warpAffine(original_frame, cropped_person, t_form, cv::Size(input_w, input_h));
-    
-//     // //Convert to tensor blob
-//     // out_blob = cv::dnn::blobFromImage(cropped_person, 1.0/255.0, cv::Size(), cv::Scalar(0,0,0), true, false);
-
-//     cv::Mat cropped_person;
-//     cv::warpAffine(original_frame, cropped_person, t_form, cv::Size(input_w, input_h));
-    
-//     cv::Mat temp_blob;
-//     cv::dnn::blobFromImage(cropped_person, temp_blob, 1.0/255.0, cv::Size(), cv::Scalar(0,0,0), true, false, CV_32F);
-
-//     // CRITICAL FIX: Sync the CPU cache to the GPU memory for the Pose network!
-//     cudaMemcpy(d_input0_ptr, temp_blob.ptr<float>(), temp_blob.total() * sizeof(float), cudaMemcpyDefault);
-
-// }
-
 void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Rect& person_box, int input_w, int input_h, float* d_input0_ptr, cv::Mat& out_t_form_inv) {
    
     //Calculate the scale factor to preserve the aspect ratio
@@ -202,7 +158,6 @@ void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Re
     cv::Mat temp_blob;
     cv::dnn::blobFromImage(cropped_person, temp_blob, 1.0/255.0, cv::Size(), cv::Scalar(0,0,0), true, false, CV_32F);
 
-    // CRITICAL FIX: Sync the CPU cache to the GPU memory for the Pose network!
     cudaMemcpy(d_input0_ptr, temp_blob.ptr<float>(), temp_blob.total() * sizeof(float), cudaMemcpyDefault);
 }
 
@@ -460,32 +415,13 @@ int runner::setup(int mode) {
     if (!loadAndScaleIntrinsics(calib_file, stream_resolution, peoplenet_resolution, geo)) {
         std::cerr << "Warning: Could not load calibration data." << std::endl;
     }
-		
-        // 1. Define the hardware-accelerated GStreamer pipeline
-    // gst_pipeline = 
-    //     "v4l2src device=/dev/video0 ! "
-    //     "image/jpeg, width=1920, height=1080, framerate=30/1 ! "
-    //     "nvjpegdec ! "
-    //     "video/x-raw ! "
-    //     "videoconvert ! "
-    //     "video/x-raw, format=BGR ! "
-    //     "appsink drop=true sync=false";
 
     cap.open(gst_pipeline, cv::CAP_GSTREAMER);
-
-    // 2. Open the camera using the GStreamer backend
-    // cap.open(gst_pipeline, cv::CAP_GSTREAMER);
 
     if (!cap.isOpened()) {
         std::cerr << "Error: Failed to open camera with GStreamer!" << std::endl;
         return -1;
     }
-
-
-	// cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));	
-    // cap.set(cv::CAP_PROP_FRAME_WIDTH, stream_resolution.width);
-    // cap.set(cv::CAP_PROP_FRAME_HEIGHT, stream_resolution.height);
-	// cap.set(cv::CAP_PROP_FPS, 30);
 
 	std::cout << "set up bounding box runner" << std::endl;
 	if(!bbox_runner.setup(bb_engine_file,bb_onnx_file, peoplenet_resolution, rebuild)){
@@ -521,23 +457,22 @@ int runner::run(int mode) {
 
     global_pool.initialize(10);
     std::cout << "initialize threads\n";
-    // Spawn 4 pipeline threads
+    // Spawn 3 pipeline threads
     std::thread t1(&runner::stage1_capture, this);
     std::thread t2(&runner::stage2_bbox, this);
     std::thread t3(&runner::stage3_pose, this);
-    // std::thread t4(&runner::stage4_output, this);
+
+    // don't need to thread main
     stage4_output();
+
     // Wait for shutdown
     t1.join();
     t2.join();
     t3.join();
     
-    // t4.join();
-
     std::cout << "Pipeline shut down gracefully." << std::endl;
     return 0;
 }
 
 runner::runner() : pose_runner(geo) {
-    // The body can stay completely empty.
 }
