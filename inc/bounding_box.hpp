@@ -113,7 +113,26 @@ struct bb_context_packet
     float *d_pose2d = nullptr, *d_pose2d_org = nullptr, *d_pose25d = nullptr, *d_pose3d = nullptr;
 
     bb_context_packet() {
-        // 1. Allocate ONLY the float arrays in pinned hardware memory
+        
+        cudaMallocManaged((void**)&d_input, (INPUT_ELEMENTS + TRT_PADDING) * sizeof(float));
+        cudaMallocManaged((void**)&d_bbox, (BBOX_ELEMENTS + TRT_PADDING) * sizeof(float));
+        cudaMallocManaged((void**)&d_cov, (COV_ELEMENTS + TRT_PADDING) * sizeof(float));
+
+        cudaMallocManaged((void**)&d_input0, 1 * 3 * input_h * input_w * sizeof(float));
+        cudaMallocManaged((void**)&d_k_inv, 1 * 3 * 3 * sizeof(float));
+        cudaMallocManaged((void**)&d_t_form_inv, 1 * 3 * 3 * sizeof(float));
+        cudaMallocManaged((void**)&d_scale_norm_limb, 1 * 36 * sizeof(float));
+        cudaMallocManaged((void**)&d_mean_limb, 1 * 36 * sizeof(float));
+
+        cudaMallocManaged((void**)&d_pose2d, 1 * num_keypoints * 3 * sizeof(float));
+        cudaMallocManaged((void**)&d_pose2d_org, 1 * num_keypoints * 3 * sizeof(float));
+        cudaMallocManaged((void**)&d_pose25d, 1 * num_keypoints * 4 * sizeof(float));
+        cudaMallocManaged((void**)&d_pose3d, 1 * num_keypoints * 3 * sizeof(float));
+        
+        
+        //bdn code
+        /*
+        
         cudaHostAlloc((void**)&d_input, (INPUT_ELEMENTS + TRT_PADDING) * sizeof(float), cudaHostAllocMapped);
         cudaHostAlloc((void**)&d_bbox, (BBOX_ELEMENTS + TRT_PADDING) * sizeof(float), cudaHostAllocMapped);
         cudaHostAlloc((void**)&d_cov, (COV_ELEMENTS + TRT_PADDING) * sizeof(float), cudaHostAllocMapped);
@@ -129,6 +148,7 @@ struct bb_context_packet
         cudaHostAlloc((void**)&d_pose2d_org, 1 * num_keypoints * 3 * sizeof(float), cudaHostAllocMapped);
         cudaHostAlloc((void**)&d_pose25d, 1 * num_keypoints * 4 * sizeof(float), cudaHostAllocMapped);
         cudaHostAlloc((void**)&d_pose3d, 1 * num_keypoints * 3 * sizeof(float), cudaHostAllocMapped);
+        */
 
         // 2. Clear out NaN garbage strictly for the GPU arrays
         std::memset(d_input, 0, (INPUT_ELEMENTS + TRT_PADDING) * sizeof(float));
@@ -139,7 +159,6 @@ struct bb_context_packet
         std::memset(d_pose2d_org, 0, 1 * num_keypoints * 3 * sizeof(float));
         std::memset(d_pose25d, 0, 1 * num_keypoints * 4 * sizeof(float));
         std::memset(d_pose3d, 0, 1 * num_keypoints * 3 * sizeof(float));
-
         // 3. Initialize OpenCV objects in standard CPU RAM
         model_input.create(cv::Size(960, 544), CV_8UC3);
 
@@ -151,6 +170,23 @@ struct bb_context_packet
     
     // 4. Clean up CUDA memory safely when the packet is destroyed
     ~bb_context_packet() {
+        if (d_input) cudaFree(d_input);
+        if (d_bbox) cudaFree(d_bbox);
+        if (d_cov) cudaFree(d_cov);
+
+        // Body Pose Pointers
+        if (d_input0) cudaFree(d_input0);
+        if (d_k_inv) cudaFree(d_k_inv);
+        if (d_t_form_inv) cudaFree(d_t_form_inv);
+        if (d_scale_norm_limb) cudaFree(d_scale_norm_limb);
+        if (d_mean_limb) cudaFree(d_mean_limb);
+        
+        if (d_pose2d) cudaFree(d_pose2d);
+        if (d_pose2d_org) cudaFree(d_pose2d_org);
+        if (d_pose25d) cudaFree(d_pose25d);
+        if (d_pose3d) cudaFree(d_pose3d);
+        //bdn code
+        /*
         if (d_input) cudaFreeHost(d_input);
         if (d_bbox) cudaFreeHost(d_bbox);
         if (d_cov) cudaFreeHost(d_cov);
@@ -170,6 +206,7 @@ struct bb_context_packet
         if (d_pose2d_org) cudaFreeHost(d_pose2d_org);
         if (d_pose25d) cudaFreeHost(d_pose25d);
         if (d_pose3d) cudaFreeHost(d_pose3d);
+        */
     }
 
     // 5. Prevent accidental deep copies that would cause double-frees

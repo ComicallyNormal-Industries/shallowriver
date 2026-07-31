@@ -64,7 +64,9 @@ void runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, c
     );
 
     // 3. CRITICAL: Copy the floats from OpenCV's temporary blob directly into your pinned hardware memory
-    std::memcpy(bb_context.d_input, temp_blob.ptr<float>(), temp_blob.total() * sizeof(float));
+    //bdn
+    //std::memcpy(bb_context.d_input, temp_blob.ptr<float>(), temp_blob.total() * sizeof(float));
+    cudaMemcpy(bb_context.d_input, temp_blob.ptr<float>(), temp_blob.total() * sizeof(float), cudaMemcpyDefault);
 }
 
 void runner::decodeDetections(const ModelConfig& cfg, bb_context_packet& bb_context) {
@@ -365,7 +367,9 @@ void runner::stage2_bbox() {
         if (in_slot == nullptr) continue;
 
         // Take a copy of the shared_ptr so we maintain ownership of the memory
-        PacketPtr p = *in_slot; 
+        //bdn
+        //PacketPtr p = *in_slot; 
+        PacketPtr p = std::move(*in_slot);
 
         if (!p) {
             std::cerr << "[Warning] Stage 2 received a null packet." << std::endl;
@@ -399,7 +403,9 @@ void runner::stage3_pose() {
 
         std::cout << "here4\n";
         PacketPtr* in_slot = q2_3.wait_and_consume();
-        PacketPtr p = *in_slot; 
+        //bdn
+        //PacketPtr p = *in_slot; 
+        PacketPtr p = std::move(*in_slot);
         if (!p) {
             std::cerr << "[Warning] Stage 2 received a null packet." << std::endl;
             continue; 
@@ -496,7 +502,9 @@ void runner::stage4_output() {
     while (true) {
 
         PacketPtr* in_slot = q3_4.wait_and_consume();
-        PacketPtr p = *in_slot; 
+        //bdn
+        //PacketPtr p = *in_slot; 
+        PacketPtr p = std::move(*in_slot);
         if (!p) {
             std::cerr << "[Warning] Stage 2 received a null packet." << std::endl;
             continue; 
