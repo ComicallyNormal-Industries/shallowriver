@@ -11,36 +11,6 @@
 #include "bounded_queue.hpp"
 #pragma once
 
-struct FramePacket {
-    uint64_t frame_id;
-    cv::Mat raw_frame;
-};
-
-struct BBoxPacket {
-    uint64_t frame_id;
-    cv::Mat raw_frame;
-    cv::Mat model_input;
-    std::vector<cv::Rect> bboxes;
-    std::vector<float> confidences;
-    std::vector<int> class_ids;
-    std::vector<int> nms_indices;
-};
-
-struct RenderPacket {
-    uint64_t frame_id;
-    cv::Mat final_frame;
-};
-
-struct bp_context_packet
-{
-	// Inputs changed to float*
-    float *d_input0 = nullptr, *d_k_inv = nullptr, *d_t_form_inv = nullptr;
-    float *d_scale_norm_limb = nullptr, *d_mean_limb = nullptr;
-	float *d_pose2d = nullptr, *d_pose2d_org = nullptr, *d_pose25d = nullptr, *d_pose3d = nullptr;
-};
-
-
-
 class runner {
 
 	public:
@@ -86,10 +56,8 @@ class runner {
 
 		void renderDetections(cv::Mat& output_image, const ModelConfig& cfg, bb_context_packet& bb_context, const std::vector<int>& nms_indices);
 
-		//void preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Rect& person_box, int input_w, int input_h, cv::Mat& out_blob, cv::Mat& out_t_form_inv);
 		void preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Rect& person_box, int input_w, int input_h, float* d_input0_ptr, cv::Mat& out_t_form_inv);
 
-		// Inside inc/runner.hpp
 		std::vector<NvAR_Point3f> processBodyPoseOutput(const float* pose25d, const float* pose3d_raw, int numKeypoints, const cv::Rect& person_box, int crop_w, int crop_h, const cv::Mat& cameraMatrix);
 
 		int setup(int mode);
@@ -102,10 +70,6 @@ class runner {
     	void stage2_bbox();
     	void stage3_pose();
     	void stage4_output();
-	
-
-		// x6<6> bb_context;
-		SPSCLatestValueCuda<bb_context_packet> bp_context;
 
 		int run(int mode);
 		runner();
