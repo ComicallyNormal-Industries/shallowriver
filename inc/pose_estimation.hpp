@@ -16,6 +16,7 @@ struct CameraGeometry {
     cv::Mat cameraMatrixScaled;
     cv::Mat cameraMatrixInverse;
     cv::Mat distortionCoeffs;
+	cv::Mat cameraMatrixInverseFloat;
 };
 	
 struct BodyPoseContext {

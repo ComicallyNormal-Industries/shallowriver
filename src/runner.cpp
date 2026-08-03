@@ -27,28 +27,12 @@ bool runner::loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSi
     outGeo.cameraMatrixScaled.at<double>(1, 2) *= scale_y; 
 
     outGeo.cameraMatrixInverse = outGeo.cameraMatrixScaled.inv();
+
+    outGeo.cameraMatrixInverse.convertTo(outGeo.cameraMatrixInverseFloat, CV_32F);
+
     return true;
 }
 
-// void runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, cv::Mat& model_input, bb_context_packet& bb_context) {
-    
-//     // 1. Resize the 2D image
-//     cv::resize(frame, model_input, target_resolution);
-    
-//     // 2. Let OpenCV generate the 4D tensor in its own temporary CPU memory
-//     cv::Mat temp_blob;
-//     cv::dnn::blobFromImage(
-//         model_input,        // Input image
-//         temp_blob,          // Output array (OpenCV owns this temporary memory)
-//         1.0 / 255.0,        // Scale factor
-//         cv::Size(),         // Target size (already resized)
-//         cv::Scalar(0,0,0),  // Mean subtraction
-//         true,               // SwapRB (BGR to RGB)
-//         false,              // Crop
-//         CV_32F              // Depth
-//     );
-//     cudaMemcpy(bb_context.d_input, temp_blob.ptr<float>(), temp_blob.total() * sizeof(float), cudaMemcpyDefault);
-// }
 void runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, cv::Mat& model_input, bb_context_packet& bb_context) {
     
     // 1. Resize directly into the pre-allocated model_input buffer
@@ -156,41 +140,7 @@ void runner::renderDetections(cv::Mat& output_image, const ModelConfig& cfg, bb_
     }
 }
 
-// void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Rect& person_box, int input_w, int input_h, float* d_input0_ptr, cv::Mat& out_t_form_inv) {
-   
-//     //Calculate the scale factor to preserve the aspect ratio
-//     float scale = std::min(static_cast<float>(input_w) / person_box.width, 
-//                            static_cast<float>(input_h) / person_box.height);
 
-//     //Calculate the centering offsets (this creates the black padding)
-//     float scaled_w = person_box.width * scale;
-//     float scaled_h = person_box.height * scale;
-//     float dx = (input_w - scaled_w) / 2.0f;
-//     float dy = (input_h - scaled_h) / 2.0f;
-
-//     //Map the pixels from the original frame into the padded 192x256 target
-//     cv::Mat t_form = (cv::Mat_<float>(2, 3) << 
-//         scale, 0.0f, -person_box.x * scale + dx,
-//         0.0f, scale, -person_box.y * scale + dy
-//     );
-
-//     //Create the 3x3 Inverse Transform Matrix for the GPU
-//     cv::Mat t_form_3x3 = cv::Mat::eye(3, 3, CV_32F);
-//     t_form.copyTo(t_form_3x3(cv::Rect(0, 0, 3, 2))); 
-
-//     cv::Mat t_form_inv_double = t_form_3x3.inv(); 
-//     t_form_inv_double.convertTo(out_t_form_inv, CV_32F);
-
-//     //warp the frame (OpenCV automatically pads empty space with black)
-//     cv::Mat cropped_person;
-//     cv::warpAffine(original_frame, cropped_person, t_form, cv::Size(input_w, input_h));
-    
-//     //Convert to tensor blob
-//     cv::Mat temp_blob;
-//     cv::dnn::blobFromImage(cropped_person, temp_blob, 1.0/255.0, cv::Size(), cv::Scalar(0,0,0), true, false, CV_32F);
-
-//     cudaMemcpy(d_input0_ptr, temp_blob.ptr<float>(), temp_blob.total() * sizeof(float), cudaMemcpyDefault);
-// }
 void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Rect& person_box, int input_w, int input_h, float* d_input0_ptr, cv::Mat& out_t_form_inv) {
    
     // Calculate the scale factor to preserve the aspect ratio
@@ -398,44 +348,37 @@ void runner::stage3_pose() {
 
                 cv::Mat t_form_inv;
                 
-                // Preprocess Crop
                 auto t0 = std::chrono::steady_clock::now();
+
+                // 1. Setup k_inv BEFORE inference! (Zero heap allocation, just a fast memory copy)
+                if (p->camera_id == 0) {
+                    std::memcpy(p->d_k_inv, geo1.cameraMatrixInverseFloat.ptr<float>(), 9 * sizeof(float));
+                } else {
+                    std::memcpy(p->d_k_inv, geo2.cameraMatrixInverseFloat.ptr<float>(), 9 * sizeof(float));
+                }
+
+                // 2. Preprocess Crop
                 preprocessBodyPoseInput(p->model_input, box, input_w, input_h, p->d_input0, t_form_inv);
                 p->t_s3_pre += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 
-                // Inference
+                // 3. Inference
                 t0 = std::chrono::steady_clock::now();
                 pose_runner.processAndRunBodyPose(*p);
-                cudaDeviceSynchronize(); // MUST WAIT for accurate timing
+                
                 p->t_s3_inf += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 
-                // Decode & Draw
+                // 4. Decode & Draw
                 t0 = std::chrono::steady_clock::now();
                 
                 std::vector<NvAR_Point3f> final_3d;
-
-                // std::cout << "camera id: " << p->camera_id;
-
-                if(p->camera_id == 0)
-                {
+                if(p->camera_id == 0) {
                     final_3d = processBodyPoseOutput(
                         p->d_pose25d, p->d_pose3d, num_keypoints, box, input_w, input_h, geo1.cameraMatrixOrig
                     );
-                    cv::Mat k_inv_float;
-                    geo1.cameraMatrixInverse.convertTo(k_inv_float, CV_32F);
-                    k_inv_float = k_inv_float.clone();
-                    std::memcpy(p->d_k_inv, k_inv_float.ptr<float>(), 9 * sizeof(float));
-
-                } else
-                {
+                } else {
                     final_3d = processBodyPoseOutput(
                         p->d_pose25d, p->d_pose3d, num_keypoints, box, input_w, input_h, geo2.cameraMatrixOrig
                     );
-
-                    cv::Mat k_inv_float;
-                    geo2.cameraMatrixInverse.convertTo(k_inv_float, CV_32F);
-                    k_inv_float = k_inv_float.clone();
-                    std::memcpy(p->d_k_inv, k_inv_float.ptr<float>(), 9 * sizeof(float));
                 }
 
                 p_logger.log_keypoints(final_3d);
@@ -465,7 +408,7 @@ void runner::stage3_pose() {
 void runner::stage4_output() {
     auto fps_start_time = std::chrono::steady_clock::now();
     
-    // CRITICAL FIX: Array to track stats independently for Cam 0 and Cam 1
+    // Array to track stats independently for Cam 0 and Cam 1
     int frame_counts[2] = {0, 0};
     double current_fps[2] = {0.0, 0.0};
 
@@ -473,6 +416,7 @@ void runner::stage4_output() {
     double b_cap = 0;
     double b_s2_tot = 0, b_s2_pre = 0, b_s2_inf = 0, b_s2_post = 0;
     double b_s3_tot = 0, b_s3_pre = 0, b_s3_inf = 0, b_s3_post = 0;
+    double b_s4_tot = 0; // ADDED: Stage 4 accumulator
 
     while (true) {
         PacketPtr* in_slot = q3_4.wait_and_consume();
@@ -480,12 +424,15 @@ void runner::stage4_output() {
         PacketPtr p = std::move(*in_slot);
         if (!p) continue; 
 
+        // Start timing Stage 4 execution for this frame
+        auto t_s4_start = std::chrono::steady_clock::now();
+
         // Safely increment the specific camera's count
         if (p->camera_id == 0 || p->camera_id == 1) {
             frame_counts[p->camera_id]++;
         }
         
-        // Accumulate pipeline times for this frame
+        // Accumulate pipeline times from earlier stages
         b_cap += p->t_cap;
         b_s2_tot += p->t_s2_total; b_s2_pre += p->t_s2_pre; b_s2_inf += p->t_s2_inf; b_s2_post += p->t_s2_post;
         b_s3_tot += p->t_s3_total; b_s3_pre += p->t_s3_pre; b_s3_inf += p->t_s3_inf; b_s3_post += p->t_s3_post;
@@ -495,8 +442,6 @@ void runner::stage4_output() {
 
         // Print benchmark report every 2.0 seconds
         if (elapsed_seconds >= 2.0) {
-            
-            // Calculate individual FPS
             current_fps[0] = frame_counts[0] / elapsed_seconds;
             current_fps[1] = frame_counts[1] / elapsed_seconds;
             
@@ -519,6 +464,8 @@ void runner::stage4_output() {
                 std::cout << "  - ROI Preprocessing:        " << (b_s3_pre / total_frames) << " ms\n";
                 std::cout << "  - TensorRT Inference:       " << (b_s3_inf / total_frames) << " ms\n";
                 std::cout << "  - Decode Math & Draw:       " << (b_s3_post / total_frames) << " ms\n";
+                std::cout << "-------------------------------------------------------\n";
+                std::cout << "Stage 4 (Render & Display):   " << (b_s4_tot / total_frames) << " ms\n";
                 std::cout << "=======================================================\n";
             }
             
@@ -529,6 +476,7 @@ void runner::stage4_output() {
             b_cap = 0;
             b_s2_tot = 0; b_s2_pre = 0; b_s2_inf = 0; b_s2_post = 0;
             b_s3_tot = 0; b_s3_pre = 0; b_s3_inf = 0; b_s3_post = 0;
+            b_s4_tot = 0;
         }
 
         renderDetections(p->model_input, *bb_cfg_ptr, *p, p->nms_indices);
@@ -545,8 +493,14 @@ void runner::stage4_output() {
             cv::imshow("Camera 1: TensorRT Pipeline", p->model_input);
         }
 
-        // waitKey handles GUI events for all active imshow windows simultaneously
-        if (cv::waitKey(1) == 27) { 
+        // waitKey handles GUI events for all active imshow windows
+        bool exit_requested = (cv::waitKey(1) == 27);
+
+        // Record total time spent in Stage 4 for this frame
+        double s4_time = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_s4_start).count();
+        b_s4_tot += s4_time;
+
+        if (exit_requested) { 
             running = false;
             break;
         }
@@ -667,7 +621,7 @@ int runner::run(int mode, int camera_mode) {
     std::cout << "Starting 4-Stage Asynchronous Pipeline..." << std::endl;
     running = true;
 
-    global_pool.initialize(10);
+    global_pool.initialize(20);
     std::cout << "initialize threads\n";
     // Spawn 3 pipeline threads
     std::thread t1(&runner::stage1_capture, this);
