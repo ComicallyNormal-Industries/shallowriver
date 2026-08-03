@@ -30,25 +30,57 @@ bool runner::loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSi
     return true;
 }
 
+// void runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, cv::Mat& model_input, bb_context_packet& bb_context) {
+    
+//     // 1. Resize the 2D image
+//     cv::resize(frame, model_input, target_resolution);
+    
+//     // 2. Let OpenCV generate the 4D tensor in its own temporary CPU memory
+//     cv::Mat temp_blob;
+//     cv::dnn::blobFromImage(
+//         model_input,        // Input image
+//         temp_blob,          // Output array (OpenCV owns this temporary memory)
+//         1.0 / 255.0,        // Scale factor
+//         cv::Size(),         // Target size (already resized)
+//         cv::Scalar(0,0,0),  // Mean subtraction
+//         true,               // SwapRB (BGR to RGB)
+//         false,              // Crop
+//         CV_32F              // Depth
+//     );
+//     cudaMemcpy(bb_context.d_input, temp_blob.ptr<float>(), temp_blob.total() * sizeof(float), cudaMemcpyDefault);
+// }
 void runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, cv::Mat& model_input, bb_context_packet& bb_context) {
     
-    // 1. Resize the 2D image
-    cv::resize(frame, model_input, target_resolution);
+    // 1. Resize directly into the pre-allocated model_input buffer
+    //cv::resize(frame, model_input, target_resolution);
+    cv::resize(frame, model_input, target_resolution, 0, 0, cv::INTER_NEAREST);
     
-    // 2. Let OpenCV generate the 4D tensor in its own temporary CPU memory
-    cv::Mat temp_blob;
-    cv::dnn::blobFromImage(
-        model_input,        // Input image
-        temp_blob,          // Output array (OpenCV owns this temporary memory)
-        1.0 / 255.0,        // Scale factor
-        cv::Size(),         // Target size (already resized)
-        cv::Scalar(0,0,0),  // Mean subtraction
-        true,               // SwapRB (BGR to RGB)
-        false,              // Crop
-        CV_32F              // Depth
-    );
-    cudaMemcpy(bb_context.d_input, temp_blob.ptr<float>(), temp_blob.total() * sizeof(float), cudaMemcpyDefault);
+    // 2. Direct memory translation to NCHW planar RGB format
+    const int area = model_input.rows * model_input.cols;
+
+    // BGR interleaved source pointer (uint8)
+    const uchar* src_ptr = model_input.ptr<uchar>();
+
+    // Planar destination pointers directly into your CUDA pinned memory
+    // This perfectly matches the 1x3xHxW TensorRT expectation
+    float* dst_r = bb_context.d_input;
+    float* dst_g = bb_context.d_input + area;
+    float* dst_b = bb_context.d_input + (area * 2);
+
+    const float scale = 1.0f / 255.0f;
+
+    // 3. Single-pass conversion. The ARM GCC compiler will auto-vectorize 
+    // this into NEON SIMD instructions, taking < 1ms to execute.
+    for (int i = 0; i < area; ++i) {
+        dst_b[i] = src_ptr[i * 3 + 0] * scale; // Blue
+        dst_g[i] = src_ptr[i * 3 + 1] * scale; // Green
+        dst_r[i] = src_ptr[i * 3 + 2] * scale; // Red
+    }
+    
+    // No cudaMemcpy needed! Since d_input was allocated with cudaHostAllocMapped, 
+    // the GPU can read this exact memory address instantly via the Jetson's unified memory.
 }
+
 
 void runner::decodeDetections(const ModelConfig& cfg, bb_context_packet& bb_context) {
 
@@ -124,40 +156,87 @@ void runner::renderDetections(cv::Mat& output_image, const ModelConfig& cfg, bb_
     }
 }
 
+// void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Rect& person_box, int input_w, int input_h, float* d_input0_ptr, cv::Mat& out_t_form_inv) {
+   
+//     //Calculate the scale factor to preserve the aspect ratio
+//     float scale = std::min(static_cast<float>(input_w) / person_box.width, 
+//                            static_cast<float>(input_h) / person_box.height);
+
+//     //Calculate the centering offsets (this creates the black padding)
+//     float scaled_w = person_box.width * scale;
+//     float scaled_h = person_box.height * scale;
+//     float dx = (input_w - scaled_w) / 2.0f;
+//     float dy = (input_h - scaled_h) / 2.0f;
+
+//     //Map the pixels from the original frame into the padded 192x256 target
+//     cv::Mat t_form = (cv::Mat_<float>(2, 3) << 
+//         scale, 0.0f, -person_box.x * scale + dx,
+//         0.0f, scale, -person_box.y * scale + dy
+//     );
+
+//     //Create the 3x3 Inverse Transform Matrix for the GPU
+//     cv::Mat t_form_3x3 = cv::Mat::eye(3, 3, CV_32F);
+//     t_form.copyTo(t_form_3x3(cv::Rect(0, 0, 3, 2))); 
+
+//     cv::Mat t_form_inv_double = t_form_3x3.inv(); 
+//     t_form_inv_double.convertTo(out_t_form_inv, CV_32F);
+
+//     //warp the frame (OpenCV automatically pads empty space with black)
+//     cv::Mat cropped_person;
+//     cv::warpAffine(original_frame, cropped_person, t_form, cv::Size(input_w, input_h));
+    
+//     //Convert to tensor blob
+//     cv::Mat temp_blob;
+//     cv::dnn::blobFromImage(cropped_person, temp_blob, 1.0/255.0, cv::Size(), cv::Scalar(0,0,0), true, false, CV_32F);
+
+//     cudaMemcpy(d_input0_ptr, temp_blob.ptr<float>(), temp_blob.total() * sizeof(float), cudaMemcpyDefault);
+// }
 void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Rect& person_box, int input_w, int input_h, float* d_input0_ptr, cv::Mat& out_t_form_inv) {
    
-    //Calculate the scale factor to preserve the aspect ratio
+    // Calculate the scale factor to preserve the aspect ratio
     float scale = std::min(static_cast<float>(input_w) / person_box.width, 
                            static_cast<float>(input_h) / person_box.height);
 
-    //Calculate the centering offsets (this creates the black padding)
+    // Calculate the centering offsets (this creates the black padding)
     float scaled_w = person_box.width * scale;
     float scaled_h = person_box.height * scale;
     float dx = (input_w - scaled_w) / 2.0f;
     float dy = (input_h - scaled_h) / 2.0f;
 
-    //Map the pixels from the original frame into the padded 192x256 target
+    // Map the pixels from the original frame into the padded 192x256 target
     cv::Mat t_form = (cv::Mat_<float>(2, 3) << 
         scale, 0.0f, -person_box.x * scale + dx,
         0.0f, scale, -person_box.y * scale + dy
     );
 
-    //Create the 3x3 Inverse Transform Matrix for the GPU
+    // Create the 3x3 Inverse Transform Matrix for the GPU
     cv::Mat t_form_3x3 = cv::Mat::eye(3, 3, CV_32F);
     t_form.copyTo(t_form_3x3(cv::Rect(0, 0, 3, 2))); 
 
     cv::Mat t_form_inv_double = t_form_3x3.inv(); 
     t_form_inv_double.convertTo(out_t_form_inv, CV_32F);
 
-    //warp the frame (OpenCV automatically pads empty space with black)
+    // 1. Warp the frame (OpenCV automatically pads empty space with black)
     cv::Mat cropped_person;
-    cv::warpAffine(original_frame, cropped_person, t_form, cv::Size(input_w, input_h));
+    cv::warpAffine(original_frame, cropped_person, t_form, cv::Size(input_w, input_h), cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(0,0,0));
     
-    //Convert to tensor blob
-    cv::Mat temp_blob;
-    cv::dnn::blobFromImage(cropped_person, temp_blob, 1.0/255.0, cv::Size(), cv::Scalar(0,0,0), true, false, CV_32F);
+    // 2. ZERO-COPY TRANSLATION (Replaces blobFromImage & cudaMemcpy)
+    const int area = input_w * input_h;
+    const uchar* src_ptr = cropped_person.ptr<uchar>();
 
-    cudaMemcpy(d_input0_ptr, temp_blob.ptr<float>(), temp_blob.total() * sizeof(float), cudaMemcpyDefault);
+    // Planar destination pointers directly into the GPU mapped memory
+    float* dst_r = d_input0_ptr;
+    float* dst_g = d_input0_ptr + area;
+    float* dst_b = d_input0_ptr + (area * 2);
+
+    const float norm_scale = 1.0f / 255.0f;
+
+    // 3. Single-pass conversion directly to CUDA memory
+    for (int i = 0; i < area; ++i) {
+        dst_b[i] = src_ptr[i * 3 + 0] * norm_scale;
+        dst_g[i] = src_ptr[i * 3 + 1] * norm_scale;
+        dst_r[i] = src_ptr[i * 3 + 2] * norm_scale;
+    }
 }
 
 std::vector<NvAR_Point3f> runner::processBodyPoseOutput(
@@ -385,10 +464,12 @@ void runner::stage3_pose() {
 
 void runner::stage4_output() {
     auto fps_start_time = std::chrono::steady_clock::now();
-    int frame_count = 0;
-    double current_fps = 0.0;
+    
+    // CRITICAL FIX: Array to track stats independently for Cam 0 and Cam 1
+    int frame_counts[2] = {0, 0};
+    double current_fps[2] = {0.0, 0.0};
 
-    // Running sums for the 2-second benchmark report
+    // Running sums for the 2-second benchmark report (Combined Pipeline Latency)
     double b_cap = 0;
     double b_s2_tot = 0, b_s2_pre = 0, b_s2_inf = 0, b_s2_post = 0;
     double b_s3_tot = 0, b_s3_pre = 0, b_s3_inf = 0, b_s3_post = 0;
@@ -399,9 +480,12 @@ void runner::stage4_output() {
         PacketPtr p = std::move(*in_slot);
         if (!p) continue; 
 
-        frame_count++;
+        // Safely increment the specific camera's count
+        if (p->camera_id == 0 || p->camera_id == 1) {
+            frame_counts[p->camera_id]++;
+        }
         
-        // Accumulate times for this frame
+        // Accumulate pipeline times for this frame
         b_cap += p->t_cap;
         b_s2_tot += p->t_s2_total; b_s2_pre += p->t_s2_pre; b_s2_inf += p->t_s2_inf; b_s2_post += p->t_s2_post;
         b_s3_tot += p->t_s3_total; b_s3_pre += p->t_s3_pre; b_s3_inf += p->t_s3_inf; b_s3_post += p->t_s3_post;
@@ -411,38 +495,48 @@ void runner::stage4_output() {
 
         // Print benchmark report every 2.0 seconds
         if (elapsed_seconds >= 2.0) {
-            current_fps = frame_count / elapsed_seconds;
             
-            std::cout << "\n=======================================================\n";
-            std::cout << " Pipeline Benchmark Averages (" << current_fps << " FPS)\n";
-            std::cout << "=======================================================\n";
-            std::cout << "Stage 1 (V4L2 Capture):       " << (b_cap / frame_count) << " ms\n";
-            std::cout << "-------------------------------------------------------\n";
-            std::cout << "Stage 2 (BBox Net Total):     " << (b_s2_tot / frame_count) << " ms\n";
-            std::cout << "  - Frame Preprocessing:      " << (b_s2_pre / frame_count) << " ms\n";
-            std::cout << "  - TensorRT Inference:       " << (b_s2_inf / frame_count) << " ms\n";
-            std::cout << "  - Decoding & NMS Merging:   " << (b_s2_post / frame_count) << " ms\n";
-            std::cout << "-------------------------------------------------------\n";
-            std::cout << "Stage 3 (Body Pose Total):    " << (b_s3_tot / frame_count) << " ms\n";
-            std::cout << "  - ROI Preprocessing:        " << (b_s3_pre / frame_count) << " ms\n";
-            std::cout << "  - TensorRT Inference:       " << (b_s3_inf / frame_count) << " ms\n";
-            std::cout << "  - Decode Math & Draw:       " << (b_s3_post / frame_count) << " ms\n";
-            std::cout << "=======================================================\n";
+            // Calculate individual FPS
+            current_fps[0] = frame_counts[0] / elapsed_seconds;
+            current_fps[1] = frame_counts[1] / elapsed_seconds;
+            
+            int total_frames = frame_counts[0] + frame_counts[1];
+            double total_fps = current_fps[0] + current_fps[1];
+            
+            if (total_frames > 0) {
+                std::cout << "\n=======================================================\n";
+                std::cout << " Pipeline Benchmark (Total Throughput: " << total_fps << " FPS)\n";
+                std::cout << " Cam 0: " << current_fps[0] << " FPS | Cam 1: " << current_fps[1] << " FPS\n";
+                std::cout << "=======================================================\n";
+                std::cout << "Stage 1 (V4L2 Capture):       " << (b_cap / total_frames) << " ms\n";
+                std::cout << "-------------------------------------------------------\n";
+                std::cout << "Stage 2 (BBox Net Total):     " << (b_s2_tot / total_frames) << " ms\n";
+                std::cout << "  - Frame Preprocessing:      " << (b_s2_pre / total_frames) << " ms\n";
+                std::cout << "  - TensorRT Inference:       " << (b_s2_inf / total_frames) << " ms\n";
+                std::cout << "  - Decoding & NMS Merging:   " << (b_s2_post / total_frames) << " ms\n";
+                std::cout << "-------------------------------------------------------\n";
+                std::cout << "Stage 3 (Body Pose Total):    " << (b_s3_tot / total_frames) << " ms\n";
+                std::cout << "  - ROI Preprocessing:        " << (b_s3_pre / total_frames) << " ms\n";
+                std::cout << "  - TensorRT Inference:       " << (b_s3_inf / total_frames) << " ms\n";
+                std::cout << "  - Decode Math & Draw:       " << (b_s3_post / total_frames) << " ms\n";
+                std::cout << "=======================================================\n";
+            }
             
             // Reset aggregators for the next 2-second window
             fps_start_time = current_time;
-            frame_count = 0;
+            frame_counts[0] = 0;
+            frame_counts[1] = 0;
             b_cap = 0;
             b_s2_tot = 0; b_s2_pre = 0; b_s2_inf = 0; b_s2_post = 0;
             b_s3_tot = 0; b_s3_pre = 0; b_s3_inf = 0; b_s3_post = 0;
         }
 
-        // Add the camera ID to the label so you know which feed you are looking at
-        std::string fps_label = "Cam " + std::to_string(p->camera_id) + " Pipeline FPS: " + cv::format("%.1f", current_fps);
+        renderDetections(p->model_input, *bb_cfg_ptr, *p, p->nms_indices);
+
+        // Pull the correct FPS value for the current camera's frame
+        std::string fps_label = "Cam " + std::to_string(p->camera_id) + " Pipeline FPS: " + cv::format("%.1f", current_fps[p->camera_id]);
         cv::putText(p->model_input, fps_label, cv::Point(15, 40), cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
 
-
-        renderDetections(p->model_input, *bb_cfg_ptr, *p, p->nms_indices);
         // Route the frame to the correct display window
         if (p->camera_id == 0) {
             cv::imshow("Camera 0: TensorRT Pipeline", p->model_input);

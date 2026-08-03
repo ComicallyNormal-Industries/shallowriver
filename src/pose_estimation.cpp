@@ -186,12 +186,3 @@ int pose_estimation::setup(std::string engine_file, std::string onnx_file, cv::S
 BodyPoseContext* pose_estimation::getContextPtr() { 
         return &bp_ctx; 
 }
-
-// pose_estimation::pose_estimation(CameraGeometry in_geo) {
-// 	geo1 = in_geo;
-// }
-
-// pose_estimation(CameraGeometry in_geo1, CameraGeometry in_geo2) {
-// 	geo1 = in_geo1;
-//     geo2 = in_geo2;
-// }
