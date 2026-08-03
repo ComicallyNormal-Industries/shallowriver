@@ -77,5 +77,5 @@ class runner {
     	void stage4_output();
 
 		int run(int mode, int camera_id);
-		runner();
+
 };

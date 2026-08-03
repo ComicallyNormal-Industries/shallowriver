@@ -56,6 +56,9 @@ struct bb_context_packet
 
 
     uint64_t frame_id;
+
+    uint32_t camera_id = 0;
+
     std::vector<cv::Rect> bboxes;
     std::vector<float> confidences;
     std::vector<int> class_ids;
@@ -100,6 +103,9 @@ struct bb_context_packet
         std::memset(d_pose25d, 0, 1 * num_keypoints * 4 * sizeof(float));
         std::memset(d_pose3d, 0, 1 * num_keypoints * 3 * sizeof(float));
         
+        std::memcpy(d_scale_norm_limb, scale_normalized_mean_limb_lengths.data(), 36 * sizeof(float));
+        std::memcpy(d_mean_limb, mean_limb_lengths.data(), 36 * sizeof(float));
+
         model_input.create(cv::Size(960, 544), CV_8UC3);
     }
     

@@ -124,9 +124,9 @@ bool pose_estimation::initializeBodyPose3D(const std::string& engine_file) {
 
     cudaStreamCreate(&bp_ctx.stream);
 
-    cv::Mat k_inv_float;
-    this->geo.cameraMatrixInverse.convertTo(k_inv_float, CV_32F);
-    k_inv_float = k_inv_float.clone();
+    // cv::Mat k_inv_float;
+    // this->geo.cameraMatrixInverse.convertTo(k_inv_float, CV_32F);
+    // k_inv_float = k_inv_float.clone();
 
     return true;
 }
@@ -163,8 +163,8 @@ void pose_estimation::cleanupBodyPose3D(BodyPoseContext& trt) {
     if (trt.stream) cudaStreamDestroy(trt.stream);
 }
 
-int pose_estimation::setup(std::string engine_file, std::string onnx_file, cv::Size targetSize, CameraGeometry& loaded_geo, bool rebuild){
-	this->geo = loaded_geo;
+int pose_estimation::setup(std::string engine_file, std::string onnx_file, cv::Size targetSize, bool rebuild){
+	// this->geo = loaded_geo;
 		
 	if (access(engine_file.c_str(), F_OK) == -1 || rebuild) {
 		std::cout << "Notice: Compiled execution target file '" << engine_file << "' not found." << std::endl;
@@ -187,6 +187,11 @@ BodyPoseContext* pose_estimation::getContextPtr() {
         return &bp_ctx; 
 }
 
-pose_estimation::pose_estimation(CameraGeometry in_geo) {
-	geo = in_geo;
-}
+// pose_estimation::pose_estimation(CameraGeometry in_geo) {
+// 	geo1 = in_geo;
+// }
+
+// pose_estimation(CameraGeometry in_geo1, CameraGeometry in_geo2) {
+// 	geo1 = in_geo1;
+//     geo2 = in_geo2;
+// }

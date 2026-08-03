@@ -300,9 +300,30 @@ void runner::stage3_pose() {
 
                 // Decode & Draw
                 t0 = std::chrono::steady_clock::now();
-                std::vector<NvAR_Point3f> final_3d = processBodyPoseOutput(
-                    p->d_pose25d, p->d_pose3d, num_keypoints, box, input_w, input_h, pose_runner.geo.cameraMatrixOrig
-                );
+                
+                std::vector<NvAR_Point3f> final_3d;
+                if(p->camera_id = 0)
+                {
+                    final_3d = processBodyPoseOutput(
+                        p->d_pose25d, p->d_pose3d, num_keypoints, box, input_w, input_h, geo1.cameraMatrixOrig
+                    );
+                    cv::Mat k_inv_float;
+                    geo1.cameraMatrixInverse.convertTo(k_inv_float, CV_32F);
+                    k_inv_float = k_inv_float.clone();
+                    std::memcpy(p->d_k_inv, k_inv_float.ptr<float>(), 9 * sizeof(float));
+
+                } else
+                {
+                    final_3d = processBodyPoseOutput(
+                        p->d_pose25d, p->d_pose3d, num_keypoints, box, input_w, input_h, geo2.cameraMatrixOrig
+                    );
+
+                    cv::Mat k_inv_float;
+                    geo2.cameraMatrixInverse.convertTo(k_inv_float, CV_32F);
+                    k_inv_float = k_inv_float.clone();
+                    std::memcpy(p->d_k_inv, k_inv_float.ptr<float>(), 9 * sizeof(float));
+                }
+
                 p_logger.log_keypoints(final_3d);
 
                 for (int k = 0; k < num_keypoints; ++k) {
@@ -484,7 +505,7 @@ int runner::setup(int mode, int camera_mode) {
 	}
 
 	std::cout << "set up pose estimation runner" << std::endl;
-	if(!pose_runner.setup(bp_engine_file,bp_onnx_file, cv::Size(192, 256), geo, rebuild)){
+	if(!pose_runner.setup(bp_engine_file,bp_onnx_file, cv::Size(192, 256), rebuild)){
 		std::cout << "set up pose estimation runner failed" << std::endl;
 		return -1;
 	}	
@@ -512,6 +533,7 @@ int runner::run(int mode, int camera_mode) {
     std::cout << "initialize threads\n";
     // Spawn 3 pipeline threads
     std::thread t1(&runner::stage1_capture, this);
+    // std::thread t1(&runner::stage1_capture, this);
     std::thread t2(&runner::stage2_bbox, this);
     std::thread t3(&runner::stage3_pose, this);
 
@@ -527,5 +549,3 @@ int runner::run(int mode, int camera_mode) {
     return 0;
 }
 
-runner::runner() : pose_runner(geo) {
-}
