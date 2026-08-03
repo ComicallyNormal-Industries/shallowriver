@@ -9,13 +9,16 @@
 #include <thread>
 #include <atomic>
 #include "bounded_queue.hpp"
+#include "camera_defs.hpp"
 #pragma once
 
 class runner {
 
 	public:
 
-		cv::VideoCapture cap;
+		cv::VideoCapture cap1;
+		cv::VideoCapture cap2;
+		bool multicam;
 		cv::Size stream_resolution;
 	    cv::Size peoplenet_resolution;
     	std::string bb_onnx_file;
@@ -26,7 +29,7 @@ class runner {
 		std::string calib_file;
 		std::string text_log_file;
 
-		std::string gst_pipeline = "v4l2src device=/dev/video0 io-mode=2 ! image/jpeg, width=1920, height=1080, framerate=30/1 ! nvv4l2decoder mjpeg=1 ! nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! video/x-raw, format=BGR ! appsink";
+		//std::string gst_pipeline = "v4l2src device=/dev/video0 io-mode=2 ! image/jpeg, width=1920, height=1080, framerate=30/1 ! nvv4l2decoder mjpeg=1 ! nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! video/x-raw, format=BGR ! appsink";
 
 		CameraGeometry geo;
 
@@ -59,7 +62,7 @@ class runner {
 
 		std::vector<NvAR_Point3f> processBodyPoseOutput(const float* pose25d, const float* pose3d_raw, int numKeypoints, const cv::Rect& person_box, int crop_w, int crop_h, const cv::Mat& cameraMatrix);
 
-		int setup(int mode);
+		int setup(int mode, int camera_mode);
 
 		SPSCLatestValueCuda<PacketPtr>  q1_2{};
     	SPSCLatestValueCuda<PacketPtr>   q2_3{};

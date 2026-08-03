@@ -7,5 +7,6 @@
 namespace intrinsics {
 
 	int run_calibration(int camera_id);
+	int save_intrinsics(int camera_id, cv::Mat cameraMatrix, cv::Mat distCoeffs);
 	int generate_charuco();
 }

@@ -204,7 +204,7 @@ void runner::stage1_capture() {
         auto t_start = std::chrono::steady_clock::now();
         
         cv::Mat frame;
-        cap >> frame; 
+        cap1 >> frame; 
         if (frame.empty()) break;
 
         auto t_end = std::chrono::steady_clock::now();
@@ -394,11 +394,50 @@ void runner::stage4_output() {
     }
 }
 
-int runner::setup(int mode) {
+int runner::setup(int mode, int camera_mode) {
 	bool rebuild = false;
 	if (mode == 2){
+        multicam = false;
 		rebuild = true;
 	}
+    if (camera_mode == 1){
+        multicam = false;
+        cap1.open(gst_cam1, cv::CAP_GSTREAMER);
+        if (!cap1.isOpened()) {
+            std::cerr << "Error: Failed to open camera 1 with GStreamer!" << std::endl;
+            return -1;
+        }
+    }
+    else if (camera_mode == 2){
+        cap1.open(gst_cam2, cv::CAP_GSTREAMER);
+        if (!cap1.isOpened()) {
+            std::cerr << "Error: Failed to open camera 2 with GStreamer!" << std::endl;
+            return -1;
+        }
+    }
+    else if (camera_mode == 3){
+        multicam = true;
+        cap1.open(gst_cam1, cv::CAP_GSTREAMER);
+        cap2.open(gst_cam2, cv::CAP_GSTREAMER);
+        bool cap1_test = cap1.isOpened();
+        bool cap2_test = cap2.isOpened();
+        if (!cap1_test && !cap2_test) {
+            std::cerr << "Error: Failed to open camera 1 & camera 2 with GStreamer!" << std::endl;
+            return -1;
+        }
+        else if (!cap1_test && cap2_test){
+            std::cerr << "Error: Failed to open camera 1 with GStreamer!" << std::endl;
+            return -1;
+        } 
+        else if (cap1_test && !cap2_test){
+            std::cerr << "Error: Failed to open camera 2 with GStreamer!" << std::endl;
+            return -1;
+        } 
+    }
+    else {
+        std::cerr << "Error: invalid camera mode" << std::endl;
+        return -1;
+    }
     stream_resolution = cv::Size(1920, 1080);
     peoplenet_resolution = cv::Size(960, 544);
     bb_onnx_file = "res/resnet34_peoplenet.onnx";
@@ -414,12 +453,9 @@ int runner::setup(int mode) {
         std::cerr << "Warning: Could not load calibration data." << std::endl;
     }
 
-    cap.open(gst_pipeline, cv::CAP_GSTREAMER);
+    
 
-    if (!cap.isOpened()) {
-        std::cerr << "Error: Failed to open camera with GStreamer!" << std::endl;
-        return -1;
-    }
+   
 
 	std::cout << "set up bounding box runner" << std::endl;
 	if(!bbox_runner.setup(bb_engine_file,bb_onnx_file, peoplenet_resolution, rebuild)){
@@ -444,7 +480,7 @@ int runner::setup(int mode) {
 }
 
 int runner::run(int mode, int camera_mode) {
-    if(setup(mode) != 1){
+    if(setup(mode, camera_mode) != 1){
         std::cout << "runner setup failed" << std::endl;
         return -1;
     }

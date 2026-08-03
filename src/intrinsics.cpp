@@ -7,7 +7,34 @@ const float SQUARE_LENGTH = 40.0f;
 const float MARKER_LENGTH = 30.0f;     
 const auto ARUCO_DICT = cv::aruco::DICT_6X6_250; 
 
+int intrinsics::save_intrinsics(int camera_id, cv::Mat cameraMatrix, cv::Mat distCoeffs){
+    std::string file_name;
+    if (camera_id == 1){
+        file_name = "res/calibration_1.yaml";
+    }
+    else if (camera_id == 2){
+        file_name = "res/calibration_2.yaml";
+    }
+    else {
+        std::cerr << "Error: invalide camera id number cannot save intrinsics to file" << std::endl;
+        return -1;
+    }
+
+    //Open the file for writing after all safety checks pass
+    cv::FileStorage fs(file_name, cv::FileStorage::WRITE);
+    if (!fs.isOpened()) {
+        std::cerr << "\n[Error] Failed to open " << file_name << " for writing! Check folder permissions." << std::endl;
+        return -1;
+    }
+    
+    fs << "camera_matrix" << cameraMatrix;
+    fs << "distortion_coefficients" << distCoeffs;
+    fs.release();
+    return 1;
+}
+
 int intrinsics::run_calibration(int camera_id) {
+    cv::VideoCapture cap;
     if (camera_id == 1){
         cap.open(gst_cam1, cv::CAP_GSTREAMER);
     }
@@ -136,17 +163,11 @@ int intrinsics::run_calibration(int camera_id) {
     std::cout << "Overwriting calibration.yaml with new data..." << std::endl;
     std::cout << "========================================================" << std::endl;
 
-    //Open the file for writing after all safety checks pass
-    cv::FileStorage fs("calibration.yaml", cv::FileStorage::WRITE);
-    if (!fs.isOpened()) {
-        std::cerr << "\n[Error] Failed to open calibration.yaml for writing! Check folder permissions." << std::endl;
-        return -1;
-    }
-    
-    fs << "camera_matrix" << cameraMatrix;
-    fs << "distortion_coefficients" << distCoeffs;
-    fs.release();
+    int save_err = save_intrinsics(camera_id, cameraMatrix, distCoeffs);
 
+    if (save_err != 1){
+        std::cerr << "\n[Error] Saving calibration failed " << std::endl;
+    }
     return 0;
 }
 
