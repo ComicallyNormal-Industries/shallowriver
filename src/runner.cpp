@@ -220,6 +220,38 @@ void runner::stage1_capture() {
         p->confidences.clear();
         p->class_ids.clear();
         p->nms_indices.clear();
+        p->camera_id = 0;
+
+        q1_2.produce_update([&](PacketPtr& queue_slot) {
+            queue_slot = std::move(p);
+        });
+    }
+}
+
+void runner::stage1_capture() {
+    uint64_t frame_counter = 0;
+    while (running) {
+        auto t_start = std::chrono::steady_clock::now();
+        
+        cv::Mat frame;
+        cap2 >> frame; 
+        if (frame.empty()) break;
+
+        auto t_end = std::chrono::steady_clock::now();
+        double cap_time = std::chrono::duration<double, std::milli>(t_end - t_start).count();
+
+        PacketPtr p = get_pooled_packet();
+        if (!p) continue; 
+
+        p->t_cap = cap_time;
+        p->frame_id = frame_counter++;
+        frame.copyTo(p->raw_frame);
+        p->bboxes.clear();
+        p->confidences.clear();
+        p->class_ids.clear();
+        p->nms_indices.clear();
+
+        p->camera_id = 1;
 
         q1_2.produce_update([&](PacketPtr& queue_slot) {
             queue_slot = std::move(p);
@@ -536,7 +568,7 @@ int runner::run(int mode, int camera_mode) {
     std::cout << "initialize threads\n";
     // Spawn 3 pipeline threads
     std::thread t1(&runner::stage1_capture, this);
-    // std::thread t1(&runner::stage1_capture, this);
+    std::thread t1(&runner::stage1_capture2, this);
     std::thread t2(&runner::stage2_bbox, this);
     std::thread t3(&runner::stage3_pose, this);
 
