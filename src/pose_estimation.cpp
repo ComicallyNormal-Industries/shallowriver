@@ -166,7 +166,7 @@ void pose_estimation::cleanupBodyPose3D(BodyPoseContext& trt) {
 int pose_estimation::setup(std::string engine_file, std::string onnx_file, cv::Size targetSize, CameraGeometry& loaded_geo, bool rebuild){
 	this->geo = loaded_geo;
 		
-	 if (access(engine_file.c_str(), F_OK) == -1 || rebuild) {
+	if (access(engine_file.c_str(), F_OK) == -1 || rebuild) {
 		std::cout << "Notice: Compiled execution target file '" << engine_file << "' not found." << std::endl;
         if (!compileOnnxToEngine(onnx_file, engine_file, targetSize)) {
 			std::cout << "compileing body pose engine file failed" << std::endl;

@@ -26,12 +26,15 @@ class runner {
 	    std::string bp_onnx_file;
 	    std::string bp_engine_file;
 
-		std::string calib_file;
+		std::string calib_file1;
+		std::string calib_file2;
 		std::string text_log_file;
 
 		//std::string gst_pipeline = "v4l2src device=/dev/video0 io-mode=2 ! image/jpeg, width=1920, height=1080, framerate=30/1 ! nvv4l2decoder mjpeg=1 ! nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! video/x-raw, format=BGR ! appsink";
 
-		CameraGeometry geo;
+		CameraGeometry geo1;
+		CameraGeometry geo2;
+
 
 		BodyPoseContext* bp_ctx_ptr = nullptr;
 

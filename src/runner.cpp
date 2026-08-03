@@ -407,6 +407,11 @@ int runner::setup(int mode, int camera_mode) {
             std::cerr << "Error: Failed to open camera 1 with GStreamer!" << std::endl;
             return -1;
         }
+        calib_file1 = "res/calibration_1.yaml";
+        if (!loadAndScaleIntrinsics(calib_file1, stream_resolution, peoplenet_resolution, geo1)) {
+            std::cerr << "Warning: Could not load calibration data camera 1." << std::endl;
+            return -1;
+        }
     }
     else if (camera_mode == 2){
         cap1.open(gst_cam2, cv::CAP_GSTREAMER);
@@ -414,6 +419,12 @@ int runner::setup(int mode, int camera_mode) {
             std::cerr << "Error: Failed to open camera 2 with GStreamer!" << std::endl;
             return -1;
         }
+        calib_file1 = "res/calibration_2.yaml";
+        if (!loadAndScaleIntrinsics(calib_file1, stream_resolution, peoplenet_resolution, geo1)) {
+            std::cerr << "Warning: Could not load calibration data camera 2." << std::endl;
+            return -1;
+        }
+        
     }
     else if (camera_mode == 3){
         multicam = true;
@@ -433,6 +444,17 @@ int runner::setup(int mode, int camera_mode) {
             std::cerr << "Error: Failed to open camera 2 with GStreamer!" << std::endl;
             return -1;
         } 
+        calib_file1 = "res/calibration_1.yaml";
+        calib_file2 = "res/calibration_2.yaml";
+        if (!loadAndScaleIntrinsics(calib_file1, stream_resolution, peoplenet_resolution, geo1)) {
+            std::cerr << "Warning: Could not load calibration data camera 1." << std::endl;
+            return -1;
+        }
+                
+        if (!loadAndScaleIntrinsics(calib_file2, stream_resolution, peoplenet_resolution, geo2)) {
+            std::cerr << "Warning: Could not load calibration data camera 2." << std::endl;
+            return -1;
+        }
     }
     else {
         std::cerr << "Error: invalid camera mode" << std::endl;
@@ -445,13 +467,11 @@ int runner::setup(int mode, int camera_mode) {
     bp_onnx_file = "res/bodypose3dnet_performance.onnx";
     bp_engine_file = "res/bodypose3dnet_performance.engine";
 
-	calib_file = "res/calibration.yaml";
+	
 
 	text_log_file = "res/3d_key_points.txt";
 
-    if (!loadAndScaleIntrinsics(calib_file, stream_resolution, peoplenet_resolution, geo)) {
-        std::cerr << "Warning: Could not load calibration data." << std::endl;
-    }
+ 
 
     
 
