@@ -70,6 +70,6 @@ class runner {
     	void stage3_pose();
     	void stage4_output();
 
-		int run(int mode);
+		int run(int mode, int camera_id);
 		runner();
 };

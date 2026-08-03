@@ -7,7 +7,7 @@ const float SQUARE_LENGTH = 40.0f;
 const float MARKER_LENGTH = 30.0f;     
 const auto ARUCO_DICT = cv::aruco::DICT_6X6_250; 
 
-int intrinsics::run_calibration() {
+int intrinsics::run_calibration(int camera_id) {
     cv::VideoCapture cap(0); 
     if (!cap.isOpened()) {
         std::cerr << "Error: Camera device offline." << std::endl;

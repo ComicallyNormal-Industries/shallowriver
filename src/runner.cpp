@@ -443,8 +443,8 @@ int runner::setup(int mode) {
 	return 1;	
 }
 
-int runner::run(int mode) {
-    if(!setup(mode)){
+int runner::run(int mode, int camera_mode) {
+    if(setup(mode) != 1){
         std::cout << "runner setup failed" << std::endl;
         return -1;
     }
