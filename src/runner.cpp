@@ -302,7 +302,10 @@ void runner::stage3_pose() {
                 t0 = std::chrono::steady_clock::now();
                 
                 std::vector<NvAR_Point3f> final_3d;
-                if(p->camera_id = 0)
+
+                // std::cout << "camera id: " << p->camera_id;
+
+                if(p->camera_id == 0)
                 {
                     final_3d = processBodyPoseOutput(
                         p->d_pose25d, p->d_pose3d, num_keypoints, box, input_w, input_h, geo1.cameraMatrixOrig
