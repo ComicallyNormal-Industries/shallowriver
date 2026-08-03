@@ -284,7 +284,7 @@ void runner::stage2_bbox() {
         t0 = std::chrono::steady_clock::now();
         decodeDetections(*bb_cfg_ptr, *p);
         p->nms_indices = applyNMS(*bb_cfg_ptr, p->bboxes, p->confidences);
-        //renderDetections(p->model_input, *bb_cfg_ptr, *p, p->nms_indices);
+        // renderDetections(p->model_input, *bb_cfg_ptr, *p, p->nms_indices);
         p->t_s2_post = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 
         p->t_s2_total = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_stage_start).count();
@@ -439,9 +439,10 @@ void runner::stage4_output() {
 
         // Add the camera ID to the label so you know which feed you are looking at
         std::string fps_label = "Cam " + std::to_string(p->camera_id) + " Pipeline FPS: " + cv::format("%.1f", current_fps);
-        cv::putText(p->model_input, fps_label, cv::Point(15, 40), 
-                    cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
+        cv::putText(p->model_input, fps_label, cv::Point(15, 40), cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
 
+
+        renderDetections(p->model_input, *bb_cfg_ptr, *p, p->nms_indices);
         // Route the frame to the correct display window
         if (p->camera_id == 0) {
             cv::imshow("Camera 0: TensorRT Pipeline", p->model_input);
