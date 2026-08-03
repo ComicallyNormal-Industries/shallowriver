@@ -5,6 +5,7 @@
 #include <vector>
 
 namespace intrinsics {
+
 	int run_calibration(int camera_id);
 	int generate_charuco();
 }

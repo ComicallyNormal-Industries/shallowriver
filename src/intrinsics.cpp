@@ -1,5 +1,5 @@
 #include "intrinsics.hpp"
-
+#include "camera_defs.hpp"
 // Explicitly define your verified, exact physical board specifications
 const int SQUARES_X = 4;               
 const int SQUARES_Y = 6;               
@@ -8,7 +8,16 @@ const float MARKER_LENGTH = 30.0f;
 const auto ARUCO_DICT = cv::aruco::DICT_6X6_250; 
 
 int intrinsics::run_calibration(int camera_id) {
-    cv::VideoCapture cap(0); 
+    if (camera_id == 1){
+        cap.open(gst_cam1, cv::CAP_GSTREAMER);
+    }
+    else if (camera_id == 2){
+        cap.open(gst_cam2, cv::CAP_GSTREAMER);
+    }
+    else{
+        std::cerr << "Error: invalide camera id number" << std::endl;
+    }
+    
     if (!cap.isOpened()) {
         std::cerr << "Error: Camera device offline." << std::endl;
         return -1;

@@ -36,11 +36,10 @@ int main(int argc, char** argv) {
     std::string cam_arg = (argc > 2) ? argv[2] : "1"; 
 
     if (mode == "--calibrate" || mode == "--c") {
-        int cam_id = (cam_arg == "2") ? 2 : 1; // Strict fallback to 1 if anything other than "2" is typed
+        int cam_id = (cam_arg == "2") ? 2 : 1;
         
         std::cout << "Routing to camera calibration tool for Camera " << cam_id << "..." << std::endl;
         
-        // (You will need to update run_calibration() to accept this integer)
         return intrinsics::run_calibration(cam_id);
     }
     else if (mode == "--run" || mode == "--r" || mode == "--engine" || mode == "--e") {
