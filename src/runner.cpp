@@ -222,13 +222,13 @@ void runner::stage1_capture() {
         p->nms_indices.clear();
         p->camera_id = 0;
 
-        q1_2.produce_update([&](PacketPtr& queue_slot) {
+        q1_2.produce_update(p->camera_id, [&](PacketPtr& queue_slot) {
             queue_slot = std::move(p);
         });
     }
 }
 
-void runner::stage1_capture() {
+void runner::stage1_capture2() {
     uint64_t frame_counter = 0;
     while (running) {
         auto t_start = std::chrono::steady_clock::now();
@@ -253,7 +253,7 @@ void runner::stage1_capture() {
 
         p->camera_id = 1;
 
-        q1_2.produce_update([&](PacketPtr& queue_slot) {
+        q1_2.produce_update(p->camera_id, [&](PacketPtr& queue_slot) {
             queue_slot = std::move(p);
         });
     }
@@ -568,9 +568,9 @@ int runner::run(int mode, int camera_mode) {
     std::cout << "initialize threads\n";
     // Spawn 3 pipeline threads
     std::thread t1(&runner::stage1_capture, this);
-    std::thread t1(&runner::stage1_capture2, this);
-    std::thread t2(&runner::stage2_bbox, this);
-    std::thread t3(&runner::stage3_pose, this);
+    std::thread t2(&runner::stage1_capture2, this);
+    std::thread t3(&runner::stage2_bbox, this);
+    std::thread t4(&runner::stage3_pose, this);
 
     // don't need to thread main
     stage4_output();
@@ -579,6 +579,7 @@ int runner::run(int mode, int camera_mode) {
     t1.join();
     t2.join();
     t3.join();
+    t4.join();
     
     std::cout << "Pipeline shut down gracefully." << std::endl;
     return 0;

@@ -67,11 +67,12 @@ class runner {
 
 		int setup(int mode, int camera_mode);
 
-		SPSCLatestValueCuda<PacketPtr>  q1_2{};
+		SPSCLatestValueCudaMulti<PacketPtr>  q1_2{};
     	SPSCLatestValueCuda<PacketPtr>   q2_3{};
     	SPSCLatestValueCuda<PacketPtr> q3_4{};
 
 		void stage1_capture();
+		void stage1_capture2();
     	void stage2_bbox();
     	void stage3_pose();
     	void stage4_output();
