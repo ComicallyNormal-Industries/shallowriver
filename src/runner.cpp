@@ -35,11 +35,11 @@ bool runner::loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSi
 
 void runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, cv::Mat& model_input, bb_context_packet& bb_context) {
     
-    // 1. Resize directly into the pre-allocated model_input buffer
+    //Resize directly into the pre-allocated model_input buffer
     //cv::resize(frame, model_input, target_resolution);
     cv::resize(frame, model_input, target_resolution, 0, 0, cv::INTER_NEAREST);
     
-    // 2. Direct memory translation to NCHW planar RGB format
+    //Direct memory translation to NCHW planar RGB format
     const int area = model_input.rows * model_input.cols;
 
     // BGR interleaved source pointer (uint8)
@@ -53,7 +53,7 @@ void runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, c
 
     const float scale = 1.0f / 255.0f;
 
-    // 3. Single-pass conversion. The ARM GCC compiler will auto-vectorize 
+    // Single-pass conversion. The ARM GCC compiler will auto-vectorize 
     // this into NEON SIMD instructions, taking < 1ms to execute.
     for (int i = 0; i < area; ++i) {
         dst_b[i] = src_ptr[i * 3 + 0] * scale; // Blue
@@ -61,8 +61,6 @@ void runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, c
         dst_r[i] = src_ptr[i * 3 + 2] * scale; // Red
     }
     
-    // No cudaMemcpy needed! Since d_input was allocated with cudaHostAllocMapped, 
-    // the GPU can read this exact memory address instantly via the Jetson's unified memory.
 }
 
 
@@ -226,7 +224,7 @@ std::vector<NvAR_Point3f> runner::processBodyPoseOutput(
     return final_3d;
 }
 
-// --- STAGE 1: Frame Capture ---
+// --- STAGE 1: Frame Capture Camera 1---
 void runner::stage1_capture() {
     uint64_t frame_counter = 0;
     while (running) {
@@ -256,7 +254,7 @@ void runner::stage1_capture() {
         });
     }
 }
-
+// --- STAGE 1: Frame Capture Camera 2---
 void runner::stage1_capture2() {
     uint64_t frame_counter = 0;
     while (running) {
@@ -404,7 +402,7 @@ void runner::stage3_pose() {
     }
 }
 
-
+// --- STAGE 4: Output & Rendering ---
 void runner::stage4_output() {
     auto fps_start_time = std::chrono::steady_clock::now();
     
