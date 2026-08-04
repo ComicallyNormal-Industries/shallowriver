@@ -580,15 +580,7 @@ int runner::setup(int mode, int camera_mode) {
     bp_onnx_file = "res/bodypose3dnet_performance.onnx";
     bp_engine_file = "res/bodypose3dnet_performance.engine";
 
-	
-
 	text_log_file = "res/3d_key_points.txt";
-
- 
-
-    
-
-   
 
 	std::cout << "set up bounding box runner" << std::endl;
 	if(!bbox_runner.setup(bb_engine_file,bb_onnx_file, peoplenet_resolution, rebuild)){
