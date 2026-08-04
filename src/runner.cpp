@@ -2,226 +2,131 @@
 
 PacketPool global_pool;
 
-bool runner::loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSize, cv::Size targetSize, CameraGeometry& outGeo) {
-	cv::FileStorage fs(filepath, cv::FileStorage::READ);
-    if (!fs.isOpened()) {
-        std::cerr << "Error: Could not open calibration file: " << filepath << ". Using identity matrices as fallback." << std::endl;
-        // Fallback to prevent crash if matrix inverse is needed later
-        outGeo.cameraMatrixOrig = cv::Mat::eye(3, 3, CV_64F);
-        outGeo.cameraMatrixScaled = cv::Mat::eye(3, 3, CV_64F);
-        outGeo.cameraMatrixInverse = cv::Mat::eye(3, 3, CV_64F);
-        outGeo.distortionCoeffs = cv::Mat::zeros(1, 5, CV_64F);
-        return false;
-    }
-    fs["camera_matrix"] >> outGeo.cameraMatrixOrig;
-    fs["distortion_coefficients"] >> outGeo.distortionCoeffs;
-    fs.release();
-
-    double scale_x = static_cast<double>(targetSize.width) / origSize.width;
-    double scale_y = static_cast<double>(targetSize.height) / origSize.height;
-
-    outGeo.cameraMatrixScaled = outGeo.cameraMatrixOrig.clone();
-    outGeo.cameraMatrixScaled.at<double>(0, 0) *= scale_x; 
-    outGeo.cameraMatrixScaled.at<double>(0, 2) *= scale_x; 
-    outGeo.cameraMatrixScaled.at<double>(1, 1) *= scale_y; 
-    outGeo.cameraMatrixScaled.at<double>(1, 2) *= scale_y; 
-
-    outGeo.cameraMatrixInverse = outGeo.cameraMatrixScaled.inv();
-
-    outGeo.cameraMatrixInverse.convertTo(outGeo.cameraMatrixInverseFloat, CV_32F);
-
-    return true;
-}
-
-void runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, cv::Mat& model_input, bb_context_packet& bb_context) {
-    
-    //Resize directly into the pre-allocated model_input buffer
-    //cv::resize(frame, model_input, target_resolution);
-    cv::resize(frame, model_input, target_resolution, 0, 0, cv::INTER_NEAREST);
-    
-    //Direct memory translation to NCHW planar RGB format
-    const int area = model_input.rows * model_input.cols;
-
-    // BGR interleaved source pointer (uint8)
-    const uchar* src_ptr = model_input.ptr<uchar>();
-
-    // Planar destination pointers directly into your CUDA pinned memory
-    // This perfectly matches the 1x3xHxW TensorRT expectation
-    float* dst_r = bb_context.d_input;
-    float* dst_g = bb_context.d_input + area;
-    float* dst_b = bb_context.d_input + (area * 2);
-
-    const float scale = 1.0f / 255.0f;
-
-    // Single-pass conversion. The ARM GCC compiler will auto-vectorize 
-    // this into NEON SIMD instructions, taking < 1ms to execute.
-    for (int i = 0; i < area; ++i) {
-        dst_b[i] = src_ptr[i * 3 + 0] * scale; // Blue
-        dst_g[i] = src_ptr[i * 3 + 1] * scale; // Green
-        dst_r[i] = src_ptr[i * 3 + 2] * scale; // Red
-    }
-    
-}
-
-
-void runner::decodeDetections(const ModelConfig& cfg, bb_context_packet& bb_context) {
-
-    int stride_spatial = cfg.grid_h * cfg.grid_w;
-
-    for (int c = 0; c < cfg.num_classes; ++c) {
-        for (int y = 0; y < cfg.grid_h; ++y) {
-            for (int x = 0; x < cfg.grid_w; ++x) {
-
-                int cov_offset = (c * stride_spatial) + (y * cfg.grid_w) + x;
-                
-                float confidence = bb_context.d_cov[cov_offset];
-
-                if (confidence >= cfg.conf_threshold) {
-                    int base_bbox_class = (c * 4);
-                    int idx_x1 = ((base_bbox_class + 0) * stride_spatial) + (y * cfg.grid_w) + x;
-                    int idx_y1 = ((base_bbox_class + 1) * stride_spatial) + (y * cfg.grid_w) + x;
-                    int idx_x2 = ((base_bbox_class + 2) * stride_spatial) + (y * cfg.grid_w) + x;
-                    int idx_y2 = ((base_bbox_class + 3) * stride_spatial) + (y * cfg.grid_w) + x;
-
-                    float dx1 = bb_context.d_bbox[idx_x1];
-                    float dy1 = bb_context.d_bbox[idx_y1];
-                    float dx2 = bb_context.d_bbox[idx_x2];
-                    float dy2 = bb_context.d_bbox[idx_y2];
-
-                    float cell_center_x = static_cast<float>(x) * cfg.stride_x + 0.5f;
-                    float cell_center_y = static_cast<float>(y) * cfg.stride_y + 0.5f;
-                    float x1 = cell_center_x - (dx1 * cfg.bbox_norm_x);
-                    float y1 = cell_center_y - (dy1 * cfg.bbox_norm_y);
-                    float x2 = cell_center_x + (dx2 * cfg.bbox_norm_x);
-                    float y2 = cell_center_y + (dy2 * cfg.bbox_norm_y);
-
-                    x1 = std::max(0.0f, std::min(x1, 959.0f));
-                    y1 = std::max(0.0f, std::min(y1, 543.0f));
-                    x2 = std::max(0.0f, std::min(x2, 959.0f));
-                    y2 = std::max(0.0f, std::min(y2, 543.0f));
-
-                    float width  = x2 - x1;
-                    float height = y2 - y1;
-
-                    if (width > 4.0f && height > 4.0f) {
-                        bb_context.bboxes.push_back(cv::Rect(static_cast<int>(x1), static_cast<int>(y1), static_cast<int>(width), static_cast<int>(height)));
-                        bb_context.confidences.push_back(confidence);
-                        bb_context.class_ids.push_back(c);
-                    }
-                }
-            }
+int runner::setup(int mode, int camera_mode) {
+	bool rebuild = false;
+	if (mode == 2){
+        multicam = false;
+		rebuild = true;
+	}
+    if (camera_mode == 1){
+        multicam = false;
+        cap1.open(gst_cam1, cv::CAP_GSTREAMER);
+        if (!cap1.isOpened()) {
+            std::cerr << "Error: Failed to open camera 1 with GStreamer!" << std::endl;
+            return -1;
+        }
+        calib_file1 = "res/calibration_1.yaml";
+        if (!loadAndScaleIntrinsics(calib_file1, stream_resolution, peoplenet_resolution, geo1)) {
+            std::cerr << "Warning: Could not load calibration data camera 1." << std::endl;
+            return -1;
         }
     }
-}
-
-std::vector<int> runner::applyNMS(const ModelConfig& cfg, const std::vector<cv::Rect>& bboxes, const std::vector<float>& confidences) {
-    std::vector<int> nms_indices;
-    cv::dnn::NMSBoxes(bboxes, confidences, cfg.conf_threshold, cfg.nms_threshold, nms_indices);
-    return nms_indices;
-}
-
-void runner::renderDetections(cv::Mat& output_image, const ModelConfig& cfg, bb_context_packet& bb_context, const std::vector<int>& nms_indices) {
-    for (int idx : nms_indices) {
-        cv::Rect box = bb_context.bboxes[idx];
-        int class_id = bb_context.class_ids[idx];
-        float score = bb_context.confidences[idx];
-
-        cv::rectangle(output_image, box, cfg.class_colors[class_id], 2);
-
-        std::string label = cfg.class_labels[class_id] + ": " + cv::format("%.2f", score);
-        int baseLine;
-        cv::Size label_size = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
-
-        int top = std::max(box.y, label_size.height);
-        cv::rectangle(output_image, cv::Point(box.x, top - label_size.height), cv::Point(box.x + label_size.width, top + baseLine), cfg.class_colors[class_id], cv::FILLED);
-        cv::putText(output_image, label, cv::Point(box.x, top), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
+    else if (camera_mode == 2){
+        cap1.open(gst_cam2, cv::CAP_GSTREAMER);
+        if (!cap1.isOpened()) {
+            std::cerr << "Error: Failed to open camera 2 with GStreamer!" << std::endl;
+            return -1;
+        }
+        calib_file1 = "res/calibration_2.yaml";
+        if (!loadAndScaleIntrinsics(calib_file1, stream_resolution, peoplenet_resolution, geo1)) {
+            std::cerr << "Warning: Could not load calibration data camera 2." << std::endl;
+            return -1;
+        }
+        
     }
+    else if (camera_mode == 3){
+        multicam = true;
+        cap1.open(gst_cam1, cv::CAP_GSTREAMER);
+        cap2.open(gst_cam2, cv::CAP_GSTREAMER);
+        bool cap1_test = cap1.isOpened();
+        bool cap2_test = cap2.isOpened();
+        if (!cap1_test && !cap2_test) {
+            std::cerr << "Error: Failed to open camera 1 & camera 2 with GStreamer!" << std::endl;
+            return -1;
+        }
+        else if (!cap1_test && cap2_test){
+            std::cerr << "Error: Failed to open camera 1 with GStreamer!" << std::endl;
+            return -1;
+        } 
+        else if (cap1_test && !cap2_test){
+            std::cerr << "Error: Failed to open camera 2 with GStreamer!" << std::endl;
+            return -1;
+        } 
+        calib_file1 = "res/calibration_1.yaml";
+        calib_file2 = "res/calibration_2.yaml";
+        if (!loadAndScaleIntrinsics(calib_file1, stream_resolution, peoplenet_resolution, geo1)) {
+            std::cerr << "Warning: Could not load calibration data camera 1." << std::endl;
+            return -1;
+        }
+                
+        if (!loadAndScaleIntrinsics(calib_file2, stream_resolution, peoplenet_resolution, geo2)) {
+            std::cerr << "Warning: Could not load calibration data camera 2." << std::endl;
+            return -1;
+        }
+    }
+    else {
+        std::cerr << "Error: invalid camera mode" << std::endl;
+        return -1;
+    }
+    stream_resolution = cv::Size(1920, 1080);
+    peoplenet_resolution = cv::Size(960, 544);
+    bb_onnx_file = "res/resnet34_peoplenet.onnx";
+    bb_engine_file = "res/peoplenet.engine";
+    bp_onnx_file = "res/bodypose3dnet_performance.onnx";
+    bp_engine_file = "res/bodypose3dnet_performance.engine";
+
+	text_log_file = "res/3d_key_points.txt";
+
+	std::cout << "set up bounding box runner" << std::endl;
+	if(!bbox_runner.setup(bb_engine_file,bb_onnx_file, peoplenet_resolution, rebuild)){
+		std::cout << "set up bounding box runner failed" << std::endl;
+		return -1;
+	}
+
+	std::cout << "set up pose estimation runner" << std::endl;
+	if(!pose_runner.setup(bp_engine_file,bp_onnx_file, cv::Size(192, 256), rebuild)){
+		std::cout << "set up pose estimation runner failed" << std::endl;
+		return -1;
+	}	
+
+	bp_ctx_ptr = pose_runner.getContextPtr();
+		
+    bb_ctx_ptr = bbox_runner.getContextPtr();
+    bb_cfg_ptr = bbox_runner.getConfigPtr();
+
+	p_logger.initPoseLogger(text_log_file);
+	
+	return 1;	
 }
 
+int runner::run(int mode, int camera_mode) {
+    if(setup(mode, camera_mode) != 1){
+        std::cout << "runner setup failed" << std::endl;
+        return -1;
+    }
 
-void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Rect& person_box, int input_w, int input_h, float* d_input0_ptr, cv::Mat& out_t_form_inv) {
-   
-    // Calculate the scale factor to preserve the aspect ratio
-    float scale = std::min(static_cast<float>(input_w) / person_box.width, 
-                           static_cast<float>(input_h) / person_box.height);
+    std::cout << "Starting 4-Stage Asynchronous Pipeline..." << std::endl;
+    running = true;
 
-    // Calculate the centering offsets (this creates the black padding)
-    float scaled_w = person_box.width * scale;
-    float scaled_h = person_box.height * scale;
-    float dx = (input_w - scaled_w) / 2.0f;
-    float dy = (input_h - scaled_h) / 2.0f;
+    global_pool.initialize(20);
+    std::cout << "initialize threads\n";
+    // Spawn pipeline threads
+    std::thread t1(&runner::stage1_capture, this);
+    std::thread t2(&runner::stage1_capture2, this);
+    std::thread t3(&runner::stage2_bbox, this);
+    std::thread t4(&runner::stage3_pose, this);
 
-    // Map the pixels from the original frame into the padded 192x256 target
-    cv::Mat t_form = (cv::Mat_<float>(2, 3) << 
-        scale, 0.0f, -person_box.x * scale + dx,
-        0.0f, scale, -person_box.y * scale + dy
-    );
+    // don't need to thread main
+    stage4_output();
 
-    // Create the 3x3 Inverse Transform Matrix for the GPU
-    cv::Mat t_form_3x3 = cv::Mat::eye(3, 3, CV_32F);
-    t_form.copyTo(t_form_3x3(cv::Rect(0, 0, 3, 2))); 
-
-    cv::Mat t_form_inv_double = t_form_3x3.inv(); 
-    t_form_inv_double.convertTo(out_t_form_inv, CV_32F);
-
-    // 1. Warp the frame (OpenCV automatically pads empty space with black)
-    cv::Mat cropped_person;
-    cv::warpAffine(original_frame, cropped_person, t_form, cv::Size(input_w, input_h), cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(0,0,0));
+    // Wait for shutdown
+    t1.join();
+    t2.join();
+    t3.join();
+    t4.join();
     
-    // 2. ZERO-COPY TRANSLATION (Replaces blobFromImage & cudaMemcpy)
-    const int area = input_w * input_h;
-    const uchar* src_ptr = cropped_person.ptr<uchar>();
-
-    // Planar destination pointers directly into the GPU mapped memory
-    float* dst_r = d_input0_ptr;
-    float* dst_g = d_input0_ptr + area;
-    float* dst_b = d_input0_ptr + (area * 2);
-
-    const float norm_scale = 1.0f / 255.0f;
-
-    // 3. Single-pass conversion directly to CUDA memory
-    for (int i = 0; i < area; ++i) {
-        dst_b[i] = src_ptr[i * 3 + 0] * norm_scale;
-        dst_g[i] = src_ptr[i * 3 + 1] * norm_scale;
-        dst_r[i] = src_ptr[i * 3 + 2] * norm_scale;
-    }
-}
-
-std::vector<NvAR_Point3f> runner::processBodyPoseOutput(
-        const float* pose25d,
-        const float* pose3d_raw,
-        int numKeypoints,
-        const cv::Rect& person_box,
-        int crop_w,
-        int crop_h,
-        const cv::Mat& cameraMatrix) {
-
-    std::vector<NvAR_Point3f> final_3d(numKeypoints);
-
-    // Extract Camera Intrinsics
-    float fx = cameraMatrix.at<double>(0, 0);
-    float fy = cameraMatrix.at<double>(1, 1);
-    float cx = cameraMatrix.at<double>(0, 2);
-    float cy = cameraMatrix.at<double>(1, 2);
-
-    for (int k = 0; k < numKeypoints; ++k) {
-        // The array access works exactly the same on the raw pointers!
-        float crop_x = pose25d[k * 4 + 0];
-        float crop_y = pose25d[k * 4 + 1];
-
-        float scale_x = static_cast<float>(person_box.width) / crop_w;
-        float scale_y = static_cast<float>(person_box.height) / crop_h;
-        float full_x = person_box.x + (crop_x * scale_x);
-        float full_y = person_box.y + (crop_y * scale_y);
-
-        float z_abs = pose3d_raw[k * 3 + 2];
-
-        final_3d[k].x = (full_x - cx) * z_abs / fx;
-        final_3d[k].y = (full_y - cy) * z_abs / fy;
-        final_3d[k].z = z_abs;
-    }
-
-    return final_3d;
+    std::cout << "Pipeline shut down gracefully." << std::endl;
+    return 0;
 }
 
 // --- STAGE 1: Frame Capture Camera 1---
@@ -505,130 +410,225 @@ void runner::stage4_output() {
     }
 }
 
-int runner::setup(int mode, int camera_mode) {
-	bool rebuild = false;
-	if (mode == 2){
-        multicam = false;
-		rebuild = true;
-	}
-    if (camera_mode == 1){
-        multicam = false;
-        cap1.open(gst_cam1, cv::CAP_GSTREAMER);
-        if (!cap1.isOpened()) {
-            std::cerr << "Error: Failed to open camera 1 with GStreamer!" << std::endl;
-            return -1;
-        }
-        calib_file1 = "res/calibration_1.yaml";
-        if (!loadAndScaleIntrinsics(calib_file1, stream_resolution, peoplenet_resolution, geo1)) {
-            std::cerr << "Warning: Could not load calibration data camera 1." << std::endl;
-            return -1;
-        }
+bool runner::loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSize, cv::Size targetSize, CameraGeometry& outGeo) {
+	cv::FileStorage fs(filepath, cv::FileStorage::READ);
+    if (!fs.isOpened()) {
+        std::cerr << "Error: Could not open calibration file: " << filepath << ". Using identity matrices as fallback." << std::endl;
+        // Fallback to prevent crash if matrix inverse is needed later
+        outGeo.cameraMatrixOrig = cv::Mat::eye(3, 3, CV_64F);
+        outGeo.cameraMatrixScaled = cv::Mat::eye(3, 3, CV_64F);
+        outGeo.cameraMatrixInverse = cv::Mat::eye(3, 3, CV_64F);
+        outGeo.distortionCoeffs = cv::Mat::zeros(1, 5, CV_64F);
+        return false;
     }
-    else if (camera_mode == 2){
-        cap1.open(gst_cam2, cv::CAP_GSTREAMER);
-        if (!cap1.isOpened()) {
-            std::cerr << "Error: Failed to open camera 2 with GStreamer!" << std::endl;
-            return -1;
-        }
-        calib_file1 = "res/calibration_2.yaml";
-        if (!loadAndScaleIntrinsics(calib_file1, stream_resolution, peoplenet_resolution, geo1)) {
-            std::cerr << "Warning: Could not load calibration data camera 2." << std::endl;
-            return -1;
-        }
-        
-    }
-    else if (camera_mode == 3){
-        multicam = true;
-        cap1.open(gst_cam1, cv::CAP_GSTREAMER);
-        cap2.open(gst_cam2, cv::CAP_GSTREAMER);
-        bool cap1_test = cap1.isOpened();
-        bool cap2_test = cap2.isOpened();
-        if (!cap1_test && !cap2_test) {
-            std::cerr << "Error: Failed to open camera 1 & camera 2 with GStreamer!" << std::endl;
-            return -1;
-        }
-        else if (!cap1_test && cap2_test){
-            std::cerr << "Error: Failed to open camera 1 with GStreamer!" << std::endl;
-            return -1;
-        } 
-        else if (cap1_test && !cap2_test){
-            std::cerr << "Error: Failed to open camera 2 with GStreamer!" << std::endl;
-            return -1;
-        } 
-        calib_file1 = "res/calibration_1.yaml";
-        calib_file2 = "res/calibration_2.yaml";
-        if (!loadAndScaleIntrinsics(calib_file1, stream_resolution, peoplenet_resolution, geo1)) {
-            std::cerr << "Warning: Could not load calibration data camera 1." << std::endl;
-            return -1;
-        }
-                
-        if (!loadAndScaleIntrinsics(calib_file2, stream_resolution, peoplenet_resolution, geo2)) {
-            std::cerr << "Warning: Could not load calibration data camera 2." << std::endl;
-            return -1;
-        }
-    }
-    else {
-        std::cerr << "Error: invalid camera mode" << std::endl;
-        return -1;
-    }
-    stream_resolution = cv::Size(1920, 1080);
-    peoplenet_resolution = cv::Size(960, 544);
-    bb_onnx_file = "res/resnet34_peoplenet.onnx";
-    bb_engine_file = "res/peoplenet.engine";
-    bp_onnx_file = "res/bodypose3dnet_performance.onnx";
-    bp_engine_file = "res/bodypose3dnet_performance.engine";
+    fs["camera_matrix"] >> outGeo.cameraMatrixOrig;
+    fs["distortion_coefficients"] >> outGeo.distortionCoeffs;
+    fs.release();
 
-	text_log_file = "res/3d_key_points.txt";
+    double scale_x = static_cast<double>(targetSize.width) / origSize.width;
+    double scale_y = static_cast<double>(targetSize.height) / origSize.height;
 
-	std::cout << "set up bounding box runner" << std::endl;
-	if(!bbox_runner.setup(bb_engine_file,bb_onnx_file, peoplenet_resolution, rebuild)){
-		std::cout << "set up bounding box runner failed" << std::endl;
-		return -1;
-	}
+    outGeo.cameraMatrixScaled = outGeo.cameraMatrixOrig.clone();
+    outGeo.cameraMatrixScaled.at<double>(0, 0) *= scale_x; 
+    outGeo.cameraMatrixScaled.at<double>(0, 2) *= scale_x; 
+    outGeo.cameraMatrixScaled.at<double>(1, 1) *= scale_y; 
+    outGeo.cameraMatrixScaled.at<double>(1, 2) *= scale_y; 
 
-	std::cout << "set up pose estimation runner" << std::endl;
-	if(!pose_runner.setup(bp_engine_file,bp_onnx_file, cv::Size(192, 256), rebuild)){
-		std::cout << "set up pose estimation runner failed" << std::endl;
-		return -1;
-	}	
+    outGeo.cameraMatrixInverse = outGeo.cameraMatrixScaled.inv();
 
-	bp_ctx_ptr = pose_runner.getContextPtr();
-		
-    bb_ctx_ptr = bbox_runner.getContextPtr();
-    bb_cfg_ptr = bbox_runner.getConfigPtr();
+    outGeo.cameraMatrixInverse.convertTo(outGeo.cameraMatrixInverseFloat, CV_32F);
 
-	p_logger.initPoseLogger(text_log_file);
-	
-	return 1;	
+    return true;
 }
 
-int runner::run(int mode, int camera_mode) {
-    if(setup(mode, camera_mode) != 1){
-        std::cout << "runner setup failed" << std::endl;
-        return -1;
+void runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, cv::Mat& model_input, bb_context_packet& bb_context) {
+    
+    //Resize directly into the pre-allocated model_input buffer
+    //cv::resize(frame, model_input, target_resolution);
+    cv::resize(frame, model_input, target_resolution, 0, 0, cv::INTER_NEAREST);
+    
+    //Direct memory translation to NCHW planar RGB format
+    const int area = model_input.rows * model_input.cols;
+
+    // BGR interleaved source pointer (uint8)
+    const uchar* src_ptr = model_input.ptr<uchar>();
+
+    // Planar destination pointers directly into your CUDA pinned memory
+    // This perfectly matches the 1x3xHxW TensorRT expectation
+    float* dst_r = bb_context.d_input;
+    float* dst_g = bb_context.d_input + area;
+    float* dst_b = bb_context.d_input + (area * 2);
+
+    const float scale = 1.0f / 255.0f;
+
+    // Single-pass conversion. The ARM GCC compiler will auto-vectorize 
+    // this into NEON SIMD instructions, taking < 1ms to execute.
+    for (int i = 0; i < area; ++i) {
+        dst_b[i] = src_ptr[i * 3 + 0] * scale; // Blue
+        dst_g[i] = src_ptr[i * 3 + 1] * scale; // Green
+        dst_r[i] = src_ptr[i * 3 + 2] * scale; // Red
+    }
+    
+}
+
+
+void runner::decodeDetections(const ModelConfig& cfg, bb_context_packet& bb_context) {
+
+    int stride_spatial = cfg.grid_h * cfg.grid_w;
+
+    for (int c = 0; c < cfg.num_classes; ++c) {
+        for (int y = 0; y < cfg.grid_h; ++y) {
+            for (int x = 0; x < cfg.grid_w; ++x) {
+
+                int cov_offset = (c * stride_spatial) + (y * cfg.grid_w) + x;
+                
+                float confidence = bb_context.d_cov[cov_offset];
+
+                if (confidence >= cfg.conf_threshold) {
+                    int base_bbox_class = (c * 4);
+                    int idx_x1 = ((base_bbox_class + 0) * stride_spatial) + (y * cfg.grid_w) + x;
+                    int idx_y1 = ((base_bbox_class + 1) * stride_spatial) + (y * cfg.grid_w) + x;
+                    int idx_x2 = ((base_bbox_class + 2) * stride_spatial) + (y * cfg.grid_w) + x;
+                    int idx_y2 = ((base_bbox_class + 3) * stride_spatial) + (y * cfg.grid_w) + x;
+
+                    float dx1 = bb_context.d_bbox[idx_x1];
+                    float dy1 = bb_context.d_bbox[idx_y1];
+                    float dx2 = bb_context.d_bbox[idx_x2];
+                    float dy2 = bb_context.d_bbox[idx_y2];
+
+                    float cell_center_x = static_cast<float>(x) * cfg.stride_x + 0.5f;
+                    float cell_center_y = static_cast<float>(y) * cfg.stride_y + 0.5f;
+                    float x1 = cell_center_x - (dx1 * cfg.bbox_norm_x);
+                    float y1 = cell_center_y - (dy1 * cfg.bbox_norm_y);
+                    float x2 = cell_center_x + (dx2 * cfg.bbox_norm_x);
+                    float y2 = cell_center_y + (dy2 * cfg.bbox_norm_y);
+
+                    x1 = std::max(0.0f, std::min(x1, 959.0f));
+                    y1 = std::max(0.0f, std::min(y1, 543.0f));
+                    x2 = std::max(0.0f, std::min(x2, 959.0f));
+                    y2 = std::max(0.0f, std::min(y2, 543.0f));
+
+                    float width  = x2 - x1;
+                    float height = y2 - y1;
+
+                    if (width > 4.0f && height > 4.0f) {
+                        bb_context.bboxes.push_back(cv::Rect(static_cast<int>(x1), static_cast<int>(y1), static_cast<int>(width), static_cast<int>(height)));
+                        bb_context.confidences.push_back(confidence);
+                        bb_context.class_ids.push_back(c);
+                    }
+                }
+            }
+        }
+    }
+}
+
+std::vector<int> runner::applyNMS(const ModelConfig& cfg, const std::vector<cv::Rect>& bboxes, const std::vector<float>& confidences) {
+    std::vector<int> nms_indices;
+    cv::dnn::NMSBoxes(bboxes, confidences, cfg.conf_threshold, cfg.nms_threshold, nms_indices);
+    return nms_indices;
+}
+
+void runner::renderDetections(cv::Mat& output_image, const ModelConfig& cfg, bb_context_packet& bb_context, const std::vector<int>& nms_indices) {
+    for (int idx : nms_indices) {
+        cv::Rect box = bb_context.bboxes[idx];
+        int class_id = bb_context.class_ids[idx];
+        float score = bb_context.confidences[idx];
+
+        cv::rectangle(output_image, box, cfg.class_colors[class_id], 2);
+
+        std::string label = cfg.class_labels[class_id] + ": " + cv::format("%.2f", score);
+        int baseLine;
+        cv::Size label_size = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
+
+        int top = std::max(box.y, label_size.height);
+        cv::rectangle(output_image, cv::Point(box.x, top - label_size.height), cv::Point(box.x + label_size.width, top + baseLine), cfg.class_colors[class_id], cv::FILLED);
+        cv::putText(output_image, label, cv::Point(box.x, top), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
+    }
+}
+
+
+void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Rect& person_box, int input_w, int input_h, float* d_input0_ptr, cv::Mat& out_t_form_inv) {
+   
+    // Calculate the scale factor to preserve the aspect ratio
+    float scale = std::min(static_cast<float>(input_w) / person_box.width, 
+                           static_cast<float>(input_h) / person_box.height);
+
+    // Calculate the centering offsets (this creates the black padding)
+    float scaled_w = person_box.width * scale;
+    float scaled_h = person_box.height * scale;
+    float dx = (input_w - scaled_w) / 2.0f;
+    float dy = (input_h - scaled_h) / 2.0f;
+
+    // Map the pixels from the original frame into the padded 192x256 target
+    cv::Mat t_form = (cv::Mat_<float>(2, 3) << 
+        scale, 0.0f, -person_box.x * scale + dx,
+        0.0f, scale, -person_box.y * scale + dy
+    );
+
+    // Create the 3x3 Inverse Transform Matrix for the GPU
+    cv::Mat t_form_3x3 = cv::Mat::eye(3, 3, CV_32F);
+    t_form.copyTo(t_form_3x3(cv::Rect(0, 0, 3, 2))); 
+
+    cv::Mat t_form_inv_double = t_form_3x3.inv(); 
+    t_form_inv_double.convertTo(out_t_form_inv, CV_32F);
+
+    // 1. Warp the frame (OpenCV automatically pads empty space with black)
+    cv::Mat cropped_person;
+    cv::warpAffine(original_frame, cropped_person, t_form, cv::Size(input_w, input_h), cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(0,0,0));
+    
+    // 2. ZERO-COPY TRANSLATION (Replaces blobFromImage & cudaMemcpy)
+    const int area = input_w * input_h;
+    const uchar* src_ptr = cropped_person.ptr<uchar>();
+
+    // Planar destination pointers directly into the GPU mapped memory
+    float* dst_r = d_input0_ptr;
+    float* dst_g = d_input0_ptr + area;
+    float* dst_b = d_input0_ptr + (area * 2);
+
+    const float norm_scale = 1.0f / 255.0f;
+
+    // 3. Single-pass conversion directly to CUDA memory
+    for (int i = 0; i < area; ++i) {
+        dst_b[i] = src_ptr[i * 3 + 0] * norm_scale;
+        dst_g[i] = src_ptr[i * 3 + 1] * norm_scale;
+        dst_r[i] = src_ptr[i * 3 + 2] * norm_scale;
+    }
+}
+
+std::vector<NvAR_Point3f> runner::processBodyPoseOutput(
+        const float* pose25d,
+        const float* pose3d_raw,
+        int numKeypoints,
+        const cv::Rect& person_box,
+        int crop_w,
+        int crop_h,
+        const cv::Mat& cameraMatrix) {
+
+    std::vector<NvAR_Point3f> final_3d(numKeypoints);
+
+    // Extract Camera Intrinsics
+    float fx = cameraMatrix.at<double>(0, 0);
+    float fy = cameraMatrix.at<double>(1, 1);
+    float cx = cameraMatrix.at<double>(0, 2);
+    float cy = cameraMatrix.at<double>(1, 2);
+
+    for (int k = 0; k < numKeypoints; ++k) {
+        // The array access works exactly the same on the raw pointers!
+        float crop_x = pose25d[k * 4 + 0];
+        float crop_y = pose25d[k * 4 + 1];
+
+        float scale_x = static_cast<float>(person_box.width) / crop_w;
+        float scale_y = static_cast<float>(person_box.height) / crop_h;
+        float full_x = person_box.x + (crop_x * scale_x);
+        float full_y = person_box.y + (crop_y * scale_y);
+
+        float z_abs = pose3d_raw[k * 3 + 2];
+
+        final_3d[k].x = (full_x - cx) * z_abs / fx;
+        final_3d[k].y = (full_y - cy) * z_abs / fy;
+        final_3d[k].z = z_abs;
     }
 
-    std::cout << "Starting 4-Stage Asynchronous Pipeline..." << std::endl;
-    running = true;
-
-    global_pool.initialize(20);
-    std::cout << "initialize threads\n";
-    // Spawn pipeline threads
-    std::thread t1(&runner::stage1_capture, this);
-    std::thread t2(&runner::stage1_capture2, this);
-    std::thread t3(&runner::stage2_bbox, this);
-    std::thread t4(&runner::stage3_pose, this);
-
-    // don't need to thread main
-    stage4_output();
-
-    // Wait for shutdown
-    t1.join();
-    t2.join();
-    t3.join();
-    t4.join();
-    
-    std::cout << "Pipeline shut down gracefully." << std::endl;
-    return 0;
+    return final_3d;
 }
 
