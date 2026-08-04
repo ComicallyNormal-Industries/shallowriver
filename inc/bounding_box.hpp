@@ -24,8 +24,8 @@ struct ModelConfig {
     std::vector<std::string> class_labels = {"Person", "Bag", "Face"};
     std::vector<cv::Scalar> class_colors = {cv::Scalar(0, 0, 255), cv::Scalar(0, 255, 0), cv::Scalar(255, 0, 0)};
 };
-
-struct TRTContext {
+//TRTContext
+struct  BoundingBoxContext{
     std::unique_ptr<nvinfer1::IRuntime> runtime;
     std::unique_ptr<nvinfer1::ICudaEngine> engine;
     std::unique_ptr<nvinfer1::IExecutionContext> context;
@@ -45,11 +45,11 @@ class bounding_box {
 		void cleanupTRT();
 
 		ModelConfig config;
-		TRTContext trt_ctx;
+		BoundingBoxContext bb_ctx;
 
 		int setup(std::string engine_file, std::string onnx_file, cv::Size targetSize, bool rebuild);
 
-		TRTContext* getContextPtr();
+		BoundingBoxContext* getContextPtr();
 		ModelConfig* getConfigPtr();
 
 };

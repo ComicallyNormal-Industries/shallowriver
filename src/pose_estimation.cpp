@@ -124,10 +124,6 @@ bool pose_estimation::initializeBodyPose3D(const std::string& engine_file) {
 
     cudaStreamCreate(&bp_ctx.stream);
 
-    // cv::Mat k_inv_float;
-    // this->geo.cameraMatrixInverse.convertTo(k_inv_float, CV_32F);
-    // k_inv_float = k_inv_float.clone();
-
     return true;
 }
 		
@@ -164,7 +160,6 @@ void pose_estimation::cleanupBodyPose3D(BodyPoseContext& trt) {
 }
 
 int pose_estimation::setup(std::string engine_file, std::string onnx_file, cv::Size targetSize, bool rebuild){
-	// this->geo = loaded_geo;
 		
 	if (access(engine_file.c_str(), F_OK) == -1 || rebuild) {
 		std::cout << "Notice: Compiled execution target file '" << engine_file << "' not found." << std::endl;

@@ -129,24 +129,24 @@ bool bounding_box::initializeTRT(const std::string& engine_file, const cv::Size&
     std::vector<char> engine_data = loadEngineFile(engine_file);
     if (engine_data.empty()) return false;
 
-    trt_ctx.runtime.reset(nvinfer1::createInferRuntime(gLogger));
-    trt_ctx.engine.reset(trt_ctx.runtime->deserializeCudaEngine(engine_data.data(), engine_data.size()));
-    trt_ctx.context.reset(trt_ctx.engine->createExecutionContext());
+    bb_ctx.runtime.reset(nvinfer1::createInferRuntime(gLogger));
+    bb_ctx.engine.reset(bb_ctx.runtime->deserializeCudaEngine(engine_data.data(), engine_data.size()));
+    bb_ctx.context.reset(bb_ctx.engine->createExecutionContext());
     
-    cudaStreamCreate(&trt_ctx.stream);
+    cudaStreamCreate(&bb_ctx.stream);
 
     return true;
 }
 
 bool bounding_box::runInference(bb_context_packet& bb_context) {
-    trt_ctx.context->setTensorAddress("input_1:0", bb_context.d_input);
-    trt_ctx.context->setTensorAddress("output_bbox/BiasAdd:0", bb_context.d_bbox);
-    trt_ctx.context->setTensorAddress("output_cov/Sigmoid:0", bb_context.d_cov);
+    bb_ctx.context->setTensorAddress("input_1:0", bb_context.d_input);
+    bb_ctx.context->setTensorAddress("output_bbox/BiasAdd:0", bb_context.d_bbox);
+    bb_ctx.context->setTensorAddress("output_cov/Sigmoid:0", bb_context.d_cov);
 
-    trt_ctx.context->setInputShape("input_1:0", nvinfer1::Dims4{1, 3, PEOPLENET_HEIGHT, PEOPLENET_WIDTH});
+    bb_ctx.context->setInputShape("input_1:0", nvinfer1::Dims4{1, 3, PEOPLENET_HEIGHT, PEOPLENET_WIDTH});
 
-    trt_ctx.context->enqueueV3(trt_ctx.stream);
-    cudaError_t sync_status = cudaStreamSynchronize(trt_ctx.stream);
+    bb_ctx.context->enqueueV3(bb_ctx.stream);
+    cudaError_t sync_status = cudaStreamSynchronize(bb_ctx.stream);
 
     if (sync_status != cudaSuccess) {
         std::cerr << "GPU Inference failed: " << cudaGetErrorString(sync_status) << std::endl; 
@@ -157,7 +157,7 @@ bool bounding_box::runInference(bb_context_packet& bb_context) {
 }
 
 void bounding_box::cleanupTRT() {
-	if (trt_ctx.stream) cudaStreamDestroy(trt_ctx.stream);
+	if (bb_ctx.stream) cudaStreamDestroy(bb_ctx.stream);
 }
 
 int bounding_box::setup(std::string engine_file, std::string onnx_file, cv::Size targetSize, bool rebuild){
@@ -179,8 +179,8 @@ int bounding_box::setup(std::string engine_file, std::string onnx_file, cv::Size
 
 }
 
-TRTContext* bounding_box::getContextPtr() { 
-    return &trt_ctx; 
+BoundingBoxContext* bounding_box::getContextPtr() { 
+    return &bb_ctx; 
 }
 
 ModelConfig* bounding_box::getConfigPtr(){ 

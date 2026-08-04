@@ -30,15 +30,12 @@ class runner {
 		std::string calib_file2;
 		std::string text_log_file;
 
-		//std::string gst_pipeline = "v4l2src device=/dev/video0 io-mode=2 ! image/jpeg, width=1920, height=1080, framerate=30/1 ! nvv4l2decoder mjpeg=1 ! nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! video/x-raw, format=BGR ! appsink";
-
 		CameraGeometry geo1;
 		CameraGeometry geo2;
 
-
 		BodyPoseContext* bp_ctx_ptr = nullptr;
 
-		TRTContext* bb_ctx_ptr = nullptr;
+		BoundingBoxContext* bb_ctx_ptr = nullptr;
 		ModelConfig* bb_cfg_ptr = nullptr;
 
 		bounding_box bbox_runner;

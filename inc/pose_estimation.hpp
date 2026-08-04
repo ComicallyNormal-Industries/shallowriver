@@ -37,16 +37,12 @@ struct pose_estimation {
 
 	void cleanupBodyPose3D(BodyPoseContext& trt);
 
-	// CameraGeometry geo1;
-	// CameraGeometry geo2;
 	BodyPoseContext bp_ctx;
 
 	int setup(std::string engine_file, std::string onnx_file, cv::Size targetSize, bool rebuild);
 
 	BodyPoseContext* getContextPtr();
-	
-	// pose_estimation(CameraGeometry in_geo);
-	// pose_estimation(CameraGeometry in_geo1, CameraGeometry in_geo2);
+
 };
 
 

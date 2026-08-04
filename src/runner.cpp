@@ -613,7 +613,7 @@ int runner::run(int mode, int camera_mode) {
 
     global_pool.initialize(20);
     std::cout << "initialize threads\n";
-    // Spawn 3 pipeline threads
+    // Spawn pipeline threads
     std::thread t1(&runner::stage1_capture, this);
     std::thread t2(&runner::stage1_capture2, this);
     std::thread t3(&runner::stage2_bbox, this);
