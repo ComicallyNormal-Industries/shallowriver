@@ -36,10 +36,10 @@ int intrinsics::save_intrinsics(int camera_id, cv::Mat cameraMatrix, cv::Mat dis
 int intrinsics::run_calibration(int camera_id) {
     cv::VideoCapture cap;
     if (camera_id == 1){
-        cap.open(gst_cam1, cv::CAP_GSTREAMER);
+        cap.open(gst_calib1, cv::CAP_GSTREAMER);
     }
     else if (camera_id == 2){
-        cap.open(gst_cam2, cv::CAP_GSTREAMER);
+        cap.open(gst_calib2, cv::CAP_GSTREAMER);
     }
     else{
         std::cerr << "Error: invalide camera id number" << std::endl;
@@ -49,10 +49,6 @@ int intrinsics::run_calibration(int camera_id) {
         std::cerr << "Error: Camera device offline." << std::endl;
         return -1;
     }
-
-    // Set resolution target to match your live production pipeline
-    cap.set(cv::CAP_PROP_FRAME_WIDTH, 1920);
-    cap.set(cv::CAP_PROP_FRAME_HEIGHT, 1080);
 
     // Initialize ChArUco configurations (OpenCV 4 API)
     cv::aruco::Dictionary dictionary = cv::aruco::getPredefinedDictionary(ARUCO_DICT);
