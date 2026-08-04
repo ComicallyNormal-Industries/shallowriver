@@ -253,24 +253,24 @@ void runner::stage3_pose() {
                 
                 auto t0 = std::chrono::steady_clock::now();
 
-                // 1. Setup k_inv BEFORE inference! (Zero heap allocation, just a fast memory copy)
+                //Setup k_inv BEFORE inference! (Zero heap allocation, just a fast memory copy)
                 if (p->camera_id == 0) {
                     std::memcpy(p->d_k_inv, geo1.cameraMatrixInverseFloat.ptr<float>(), 9 * sizeof(float));
                 } else {
                     std::memcpy(p->d_k_inv, geo2.cameraMatrixInverseFloat.ptr<float>(), 9 * sizeof(float));
                 }
 
-                // 2. Preprocess Crop
+                //Preprocess Crop
                 preprocessBodyPoseInput(p->model_input, box, input_w, input_h, p->d_input0, t_form_inv);
                 p->t_s3_pre += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 
-                // 3. Inference
+                //Run Inference
                 t0 = std::chrono::steady_clock::now();
                 pose_runner.processAndRunBodyPose(*p);
                 
                 p->t_s3_inf += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 
-                // 4. Decode & Draw
+                //Decode outputs on correct camera geometry
                 t0 = std::chrono::steady_clock::now();
                 
                 std::vector<NvAR_Point3f> final_3d;
@@ -469,7 +469,6 @@ void runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, c
         dst_g[i] = src_ptr[i * 3 + 1] * scale; // Green
         dst_r[i] = src_ptr[i * 3 + 2] * scale; // Red
     }
-    
 }
 
 
@@ -560,35 +559,35 @@ void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Re
     float dx = (input_w - scaled_w) / 2.0f;
     float dy = (input_h - scaled_h) / 2.0f;
 
-    // Map the pixels from the original frame into the padded 192x256 target
+    //Map the pixels from the original frame into the padded 192x256 target
     cv::Mat t_form = (cv::Mat_<float>(2, 3) << 
         scale, 0.0f, -person_box.x * scale + dx,
         0.0f, scale, -person_box.y * scale + dy
     );
 
-    // Create the 3x3 Inverse Transform Matrix for the GPU
+    //Create the 3x3 Inverse Transform Matrix for the GPU
     cv::Mat t_form_3x3 = cv::Mat::eye(3, 3, CV_32F);
     t_form.copyTo(t_form_3x3(cv::Rect(0, 0, 3, 2))); 
 
     cv::Mat t_form_inv_double = t_form_3x3.inv(); 
     t_form_inv_double.convertTo(out_t_form_inv, CV_32F);
 
-    // 1. Warp the frame (OpenCV automatically pads empty space with black)
+    //Warp the frame (OpenCV automatically pads empty space with black)
     cv::Mat cropped_person;
     cv::warpAffine(original_frame, cropped_person, t_form, cv::Size(input_w, input_h), cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(0,0,0));
     
-    // 2. ZERO-COPY TRANSLATION (Replaces blobFromImage & cudaMemcpy)
+    //ZERO-COPY TRANSLATION (Replaces blobFromImage & cudaMemcpy)
     const int area = input_w * input_h;
     const uchar* src_ptr = cropped_person.ptr<uchar>();
 
-    // Planar destination pointers directly into the GPU mapped memory
+    //Planar destination pointers directly into the GPU mapped memory
     float* dst_r = d_input0_ptr;
     float* dst_g = d_input0_ptr + area;
     float* dst_b = d_input0_ptr + (area * 2);
 
     const float norm_scale = 1.0f / 255.0f;
 
-    // 3. Single-pass conversion directly to CUDA memory
+    //Single-pass conversion directly to CUDA memory
     for (int i = 0; i < area; ++i) {
         dst_b[i] = src_ptr[i * 3 + 0] * norm_scale;
         dst_g[i] = src_ptr[i * 3 + 1] * norm_scale;
