@@ -445,6 +445,7 @@ void runner::preprocessFrame(const cv::Mat& frame, cv::Size target_resolution, c
     
     //Resize directly into the pre-allocated model_input buffer
     //cv::resize(frame, model_input, target_resolution);
+    //faster resize method
     cv::resize(frame, model_input, target_resolution, 0, 0, cv::INTER_NEAREST);
     
     //Direct memory translation to NCHW planar RGB format
