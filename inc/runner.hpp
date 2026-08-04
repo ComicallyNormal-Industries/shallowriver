@@ -18,7 +18,7 @@ class runner {
 
 		cv::VideoCapture cap1;
 		cv::VideoCapture cap2;
-		bool multicam;
+
 		cv::Size stream_resolution;
 	    cv::Size peoplenet_resolution;
     	std::string bb_onnx_file;

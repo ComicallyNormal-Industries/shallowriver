@@ -122,7 +122,9 @@ bool pose_estimation::initializeBodyPose3D(const std::string& engine_file) {
     bp_ctx.engine.reset(bp_ctx.runtime->deserializeCudaEngine(engine_data.data(), engine_data.size()));
     bp_ctx.context.reset(bp_ctx.engine->createExecutionContext());
 
-    cudaStreamCreate(&bp_ctx.stream);
+    int leastPriority, greatestPriority;
+    cudaDeviceGetStreamPriorityRange(&leastPriority, &greatestPriority);
+    cudaStreamCreateWithPriority(&bp_ctx.stream, cudaStreamNonBlocking, greatestPriority);
 
     return true;
 }

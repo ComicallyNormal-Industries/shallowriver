@@ -5,11 +5,9 @@ PacketPool global_pool;
 int runner::setup(int mode, int camera_mode) {
 	bool rebuild = false;
 	if (mode == 2){
-        multicam = false;
 		rebuild = true;
 	}
     if (camera_mode == 1){
-        multicam = false;
         cap1.open(gst_cam1, cv::CAP_GSTREAMER);
         if (!cap1.isOpened()) {
             std::cerr << "Error: Failed to open camera 1 with GStreamer!" << std::endl;
@@ -22,20 +20,19 @@ int runner::setup(int mode, int camera_mode) {
         }
     }
     else if (camera_mode == 2){
-        cap1.open(gst_cam2, cv::CAP_GSTREAMER);
-        if (!cap1.isOpened()) {
+        cap2.open(gst_cam2, cv::CAP_GSTREAMER);
+        if (!cap2.isOpened()) {
             std::cerr << "Error: Failed to open camera 2 with GStreamer!" << std::endl;
             return -1;
         }
-        calib_file1 = "res/calibration_2.yaml";
-        if (!loadAndScaleIntrinsics(calib_file1, stream_resolution, peoplenet_resolution, geo1)) {
+        calib_file2 = "res/calibration_2.yaml";
+        if (!loadAndScaleIntrinsics(calib_file2, stream_resolution, peoplenet_resolution, geo2)) {
             std::cerr << "Warning: Could not load calibration data camera 2." << std::endl;
             return -1;
         }
         
     }
     else if (camera_mode == 3){
-        multicam = true;
         cap1.open(gst_cam1, cv::CAP_GSTREAMER);
         cap2.open(gst_cam2, cv::CAP_GSTREAMER);
         bool cap1_test = cap1.isOpened();
@@ -334,7 +331,9 @@ void runner::stage4_output() {
     double current_fps[2] = {0.0, 0.0};
 
     // Running sums for the 2-second benchmark report (Combined Pipeline Latency)
-    double b_cap = 0;
+    double b_cap1 = 0;
+    double b_cap2 = 0;
+
     double b_s2_tot = 0, b_s2_pre = 0, b_s2_inf = 0, b_s2_post = 0;
     double b_s3_tot = 0, b_s3_pre = 0, b_s3_inf = 0, b_s3_post = 0;
     double b_s4_tot = 0; // ADDED: Stage 4 accumulator
@@ -354,7 +353,15 @@ void runner::stage4_output() {
         }
         
         // Accumulate pipeline times from earlier stages
-        b_cap += p->t_cap;
+        if(p->camera_id == 0)
+        {
+            b_cap1 += p->t_cap;
+        }
+        if(p->camera_id == 1)
+        {
+            b_cap2 += p->t_cap;
+        }
+        
         b_s2_tot += p->t_s2_total; b_s2_pre += p->t_s2_pre; b_s2_inf += p->t_s2_inf; b_s2_post += p->t_s2_post;
         b_s3_tot += p->t_s3_total; b_s3_pre += p->t_s3_pre; b_s3_inf += p->t_s3_inf; b_s3_post += p->t_s3_post;
 
@@ -374,7 +381,8 @@ void runner::stage4_output() {
                 std::cout << " Pipeline Benchmark (Total Throughput: " << total_fps << " FPS)\n";
                 std::cout << " Cam 0: " << current_fps[0] << " FPS | Cam 1: " << current_fps[1] << " FPS\n";
                 std::cout << "=======================================================\n";
-                std::cout << "Stage 1 (V4L2 Capture):       " << (b_cap / total_frames) << " ms\n";
+                std::cout << "Stage 1 (V4L2 Capture): cam1  " << (b_cap1 / frame_counts[0]) << " ms\n";
+                std::cout << "Stage 1 (V4L2 Capture): cam2  " << (b_cap2 / frame_counts[1]) << " ms\n";
                 std::cout << "-------------------------------------------------------\n";
                 std::cout << "Stage 2 (BBox Net Total):     " << (b_s2_tot / total_frames) << " ms\n";
                 std::cout << "  - Frame Preprocessing:      " << (b_s2_pre / total_frames) << " ms\n";
@@ -394,7 +402,8 @@ void runner::stage4_output() {
             fps_start_time = current_time;
             frame_counts[0] = 0;
             frame_counts[1] = 0;
-            b_cap = 0;
+            b_cap1 = 0;
+            b_cap2 = 0;
             b_s2_tot = 0; b_s2_pre = 0; b_s2_inf = 0; b_s2_post = 0;
             b_s3_tot = 0; b_s3_pre = 0; b_s3_inf = 0; b_s3_post = 0;
             b_s4_tot = 0;

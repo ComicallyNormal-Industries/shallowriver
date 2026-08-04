@@ -133,7 +133,10 @@ bool bounding_box::initializeTRT(const std::string& engine_file, const cv::Size&
     bb_ctx.engine.reset(bb_ctx.runtime->deserializeCudaEngine(engine_data.data(), engine_data.size()));
     bb_ctx.context.reset(bb_ctx.engine->createExecutionContext());
     
-    cudaStreamCreate(&bb_ctx.stream);
+
+     int leastPriority, greatestPriority;
+    cudaDeviceGetStreamPriorityRange(&leastPriority, &greatestPriority);
+    cudaStreamCreateWithPriority(&bb_ctx.stream, cudaStreamNonBlocking, leastPriority);
 
     return true;
 }
@@ -144,7 +147,6 @@ bool bounding_box::runInference(bb_context_packet& bb_context) {
     bb_ctx.context->setTensorAddress("output_cov/Sigmoid:0", bb_context.d_cov);
 
     bb_ctx.context->setInputShape("input_1:0", nvinfer1::Dims4{1, 3, PEOPLENET_HEIGHT, PEOPLENET_WIDTH});
-
     bb_ctx.context->enqueueV3(bb_ctx.stream);
     cudaError_t sync_status = cudaStreamSynchronize(bb_ctx.stream);
 
