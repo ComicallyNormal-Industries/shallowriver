@@ -111,8 +111,21 @@ int runner::run(int mode, int camera_mode) {
     global_pool.initialize(20);
     std::cout << "initialize threads\n";
     // Spawn pipeline threads
-    std::thread t1(&runner::stage1_capture, this);
-    std::thread t2(&runner::stage1_capture2, this);
+
+    std::thread t1;
+    std::thread t2;
+    
+    if (camera_mode == 1){
+        t1 = std::thread(&runner::stage1_capture, this);
+    }
+    else if (camera_mode == 2){
+        t2 = std::thread(&runner::stage1_capture2, this);
+    }
+    else if (camera_mode == 3){
+        t1 = std::thread(&runner::stage1_capture, this);
+        t2 = std::thread(&runner::stage1_capture2, this);
+    }
+
     std::thread t3(&runner::stage2_bbox, this);
     std::thread t4(&runner::stage3_pose, this);
 
@@ -120,8 +133,13 @@ int runner::run(int mode, int camera_mode) {
     stage4_output();
 
     // Wait for shutdown
-    t1.join();
-    t2.join();
+    if (t1.joinable()) {
+        t1.join();
+    }
+    if (t2.joinable()) {
+        t2.join();
+    }
+
     t3.join();
     t4.join();
     
