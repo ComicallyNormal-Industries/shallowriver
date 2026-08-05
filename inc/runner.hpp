@@ -28,7 +28,8 @@ class runner {
 
 		std::string calib_file1;
 		std::string calib_file2;
-		std::string text_log_file;
+		std::string text_log_file_1;
+		std::string text_log_file_2;
 
 		CameraGeometry geo1;
 		CameraGeometry geo2;
@@ -41,7 +42,8 @@ class runner {
 		bounding_box bbox_runner;
     	pose_estimation pose_runner;
 
-		pose_logger p_logger;
+		pose_logger p_logger_1;
+		pose_logger p_logger_2;
 
 		std::chrono::high_resolution_clock::time_point last_frame_time;
     	float current_fps = 0.0f;

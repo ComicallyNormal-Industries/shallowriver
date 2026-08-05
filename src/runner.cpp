@@ -3,6 +3,10 @@
 PacketPool global_pool;
 
 int runner::setup(int mode, int camera_mode) {
+
+    stream_resolution = cv::Size(1920, 1080);
+    peoplenet_resolution = cv::Size(960, 544);
+
 	bool rebuild = false;
 	if (mode == 2){
 		rebuild = true;
@@ -65,14 +69,14 @@ int runner::setup(int mode, int camera_mode) {
         std::cerr << "Error: invalid camera mode" << std::endl;
         return -1;
     }
-    stream_resolution = cv::Size(1920, 1080);
-    peoplenet_resolution = cv::Size(960, 544);
+
     bb_onnx_file = "res/resnet34_peoplenet.onnx";
     bb_engine_file = "res/peoplenet.engine";
     bp_onnx_file = "res/bodypose3dnet_performance.onnx";
     bp_engine_file = "res/bodypose3dnet_performance.engine";
 
-	text_log_file = "res/3d_key_points.txt";
+	text_log_file_1 = "res/3d_key_points_1.txt";
+    text_log_file_2 = "res/3d_key_points_2.txt";
 
 	std::cout << "set up bounding box runner" << std::endl;
 	if(!bbox_runner.setup(bb_engine_file,bb_onnx_file, peoplenet_resolution, rebuild)){
@@ -91,7 +95,8 @@ int runner::setup(int mode, int camera_mode) {
     bb_ctx_ptr = bbox_runner.getContextPtr();
     bb_cfg_ptr = bbox_runner.getConfigPtr();
 
-	p_logger.initPoseLogger(text_log_file);
+	p_logger_1.initPoseLogger(text_log_file_1);
+    p_logger_2.initPoseLogger(text_log_file_2);
 	
 	return 1;	
 }
@@ -287,19 +292,20 @@ void runner::stage3_pose() {
 
                 //Decode outputs on correct camera geometry
                 t0 = std::chrono::steady_clock::now();
-                
+
                 std::vector<NvAR_Point3f> final_3d;
                 if(p->camera_id == 0) {
                     final_3d = processBodyPoseOutput(
-                        p->d_pose25d, p->d_pose3d, num_keypoints, box, input_w, input_h, geo1.cameraMatrixOrig
+                        p->d_pose25d, p->d_pose3d, num_keypoints, box, input_w, input_h, geo1.cameraMatrixScaled
                     );
+                    p_logger_1.log_keypoints(final_3d);
                 } else {
                     final_3d = processBodyPoseOutput(
-                        p->d_pose25d, p->d_pose3d, num_keypoints, box, input_w, input_h, geo2.cameraMatrixOrig
+                        p->d_pose25d, p->d_pose3d, num_keypoints, box, input_w, input_h, geo2.cameraMatrixScaled
                     );
+                    p_logger_2.log_keypoints(final_3d);
                 }
-
-                p_logger.log_keypoints(final_3d);
+                
 
                 for (int k = 0; k < num_keypoints; ++k) {
                     float kx = p->d_pose2d[k * 3 + 0];

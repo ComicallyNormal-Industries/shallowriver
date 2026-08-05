@@ -84,7 +84,7 @@ bool pose_estimation::compileOnnxToEngine(const std::string& onnxPath, const std
     std::cout << "Hardware mapping validation initialized..." << std::endl;
 
 	if (builder->platformHasFastFp16()) {
-        config->setFlag(nvinfer1::BuilderFlag::kFP16);
+        //config->setFlag(nvinfer1::BuilderFlag::kFP16);
         std::cout << "FP16 Hardware detected. Enabling FP16 optimization." << std::endl;
     } else {
         std::cout << "Warning: FP16 not supported on this device. Using FP32." << std::endl;
@@ -138,7 +138,7 @@ std::vector<char> pose_estimation::loadEngineFile(const std::string& filename) {
     file.read(buffer.data(), size);
     return buffer;
 }
-		
+
 void pose_estimation::processAndRunBodyPose(bb_context_packet& context_packet) {
 
     bp_ctx.context->setTensorAddress("input0", context_packet.d_input0);
@@ -153,7 +153,6 @@ void pose_estimation::processAndRunBodyPose(bb_context_packet& context_packet) {
     bp_ctx.context->setTensorAddress("pose3d", context_packet.d_pose3d);
 
     bp_ctx.context->enqueueV3(bp_ctx.stream);
-
     cudaStreamSynchronize(bp_ctx.stream);
 }
 
