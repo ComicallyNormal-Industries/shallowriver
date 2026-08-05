@@ -141,6 +141,8 @@ std::vector<char> pose_estimation::loadEngineFile(const std::string& filename) {
 
 void pose_estimation::processAndRunBodyPose(bb_context_packet& context_packet) {
 
+    cudaMemcpyAsync(context_packet.d_input0, context_packet.h_input0, 1 * 3 * input_h * input_w * sizeof(float), cudaMemcpyHostToDevice, bp_ctx.stream);
+
     bp_ctx.context->setTensorAddress("input0", context_packet.d_input0);
     bp_ctx.context->setTensorAddress("k_inv", context_packet.d_k_inv);
     bp_ctx.context->setTensorAddress("t_form_inv", context_packet.d_t_form_inv);
@@ -152,7 +154,21 @@ void pose_estimation::processAndRunBodyPose(bb_context_packet& context_packet) {
     bp_ctx.context->setTensorAddress("pose25d", context_packet.d_pose25d);
     bp_ctx.context->setTensorAddress("pose3d", context_packet.d_pose3d);
 
-    bp_ctx.context->enqueueV3(bp_ctx.stream);
+    bp_ctx.context->setInputShape("input0", nvinfer1::Dims4{1, 3, input_h, input_w});
+    bp_ctx.context->setInputShape("k_inv", nvinfer1::Dims3{1, 3, 3});
+    bp_ctx.context->setInputShape("t_form_inv", nvinfer1::Dims3{1, 3, 3});
+    bp_ctx.context->setInputShape("scale_normalized_mean_limb_lengths", nvinfer1::Dims2{1, 36});
+    bp_ctx.context->setInputShape("mean_limb_lengths", nvinfer1::Dims2{1, 36});
+
+    if (!bp_ctx.context->enqueueV3(bp_ctx.stream)) {
+        std::cerr << "Body pose 3D inference enqueue failed." << std::endl;
+        return;
+    }
+
+    cudaMemcpyAsync(context_packet.h_pose2d, context_packet.d_pose2d, num_keypoints * 3 * sizeof(float), cudaMemcpyDeviceToHost, bp_ctx.stream);
+    cudaMemcpyAsync(context_packet.h_pose25d, context_packet.d_pose25d, num_keypoints * 4 * sizeof(float), cudaMemcpyDeviceToHost, bp_ctx.stream);
+    cudaMemcpyAsync(context_packet.h_pose3d, context_packet.d_pose3d, num_keypoints * 3 * sizeof(float), cudaMemcpyDeviceToHost, bp_ctx.stream);
+
     cudaStreamSynchronize(bp_ctx.stream);
 }
 

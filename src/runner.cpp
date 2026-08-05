@@ -273,15 +273,19 @@ void runner::stage3_pose() {
                 
                 auto t0 = std::chrono::steady_clock::now();
 
-                //Setup k_inv BEFORE inference! (Zero heap allocation, just a fast memory copy)
+                //Setup k_inv BEFORE inference!
+                //d_k_inv/d_t_form_inv are real device memory (cudaMalloc), not CPU-addressable,
+                //so a host-to-device cudaMemcpy is required to get data onto the GPU.
                 if (p->camera_id == 0) {
-                    std::memcpy(p->d_k_inv, geo1.cameraMatrixInverseFloat.ptr<float>(), 9 * sizeof(float));
+                    cudaMemcpy(p->d_k_inv, geo1.cameraMatrixInverseFloat.ptr<float>(), 9 * sizeof(float), cudaMemcpyHostToDevice);
                 } else {
-                    std::memcpy(p->d_k_inv, geo2.cameraMatrixInverseFloat.ptr<float>(), 9 * sizeof(float));
+                    cudaMemcpy(p->d_k_inv, geo2.cameraMatrixInverseFloat.ptr<float>(), 9 * sizeof(float), cudaMemcpyHostToDevice);
                 }
 
-                //Preprocess Crop
-                preprocessBodyPoseInput(p->model_input, box, input_w, input_h, p->d_input0, t_form_inv);
+                //Preprocess Crop (writes into the host staging buffer h_input0; processAndRunBodyPose
+                //copies it to the device buffer d_input0 before inference)
+                preprocessBodyPoseInput(p->model_input, box, input_w, input_h, p->h_input0, t_form_inv);
+                cudaMemcpy(p->d_t_form_inv, t_form_inv.ptr<float>(), 9 * sizeof(float), cudaMemcpyHostToDevice);
                 p->t_s3_pre += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 
                 //Run Inference
@@ -296,21 +300,21 @@ void runner::stage3_pose() {
                 std::vector<NvAR_Point3f> final_3d;
                 if(p->camera_id == 0) {
                     final_3d = processBodyPoseOutput(
-                        p->d_pose25d, p->d_pose3d, num_keypoints, box, input_w, input_h, geo1.cameraMatrixScaled
+                        p->h_pose25d, p->h_pose3d, num_keypoints, box, input_w, input_h, geo1.cameraMatrixScaled
                     );
                     p_logger_1.log_keypoints(final_3d);
                 } else {
                     final_3d = processBodyPoseOutput(
-                        p->d_pose25d, p->d_pose3d, num_keypoints, box, input_w, input_h, geo2.cameraMatrixScaled
+                        p->h_pose25d, p->h_pose3d, num_keypoints, box, input_w, input_h, geo2.cameraMatrixScaled
                     );
                     p_logger_2.log_keypoints(final_3d);
                 }
-                
+
 
                 for (int k = 0; k < num_keypoints; ++k) {
-                    float kx = p->d_pose2d[k * 3 + 0];
-                    float ky = p->d_pose2d[k * 3 + 1];
-                    float conf = p->d_pose2d[k * 3 + 2];
+                    float kx = p->h_pose2d[k * 3 + 0];
+                    float ky = p->h_pose2d[k * 3 + 1];
+                    float conf = p->h_pose2d[k * 3 + 2];
                     if (conf > 0.5f) {
                         int ax = static_cast<int>(t_form_inv.at<float>(0, 0) * kx + t_form_inv.at<float>(0, 1) * ky + t_form_inv.at<float>(0, 2));
                         int ay = static_cast<int>(t_form_inv.at<float>(1, 0) * kx + t_form_inv.at<float>(1, 1) * ky + t_form_inv.at<float>(1, 2));
@@ -580,7 +584,7 @@ void runner::renderDetections(cv::Mat& output_image, const ModelConfig& cfg, bb_
 }
 
 
-void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Rect& person_box, int input_w, int input_h, float* d_input0_ptr, cv::Mat& out_t_form_inv) {
+void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Rect& person_box, int input_w, int input_h, float* h_input0_ptr, cv::Mat& out_t_form_inv) {
    
     // Calculate the scale factor to preserve the aspect ratio
     float scale = std::min(static_cast<float>(input_w) / person_box.width, 
@@ -609,18 +613,19 @@ void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Re
     cv::Mat cropped_person;
     cv::warpAffine(original_frame, cropped_person, t_form, cv::Size(input_w, input_h), cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(0,0,0));
     
-    //ZERO-COPY TRANSLATION (Replaces blobFromImage & cudaMemcpy)
+    //Convert to an RGB planar blob (replaces blobFromImage), written into the host
+    //staging buffer. The caller copies this to device memory before inference.
     const int area = input_w * input_h;
     const uchar* src_ptr = cropped_person.ptr<uchar>();
 
-    //Planar destination pointers directly into the GPU mapped memory
-    float* dst_r = d_input0_ptr;
-    float* dst_g = d_input0_ptr + area;
-    float* dst_b = d_input0_ptr + (area * 2);
+    //Planar destination pointers into the host staging buffer
+    float* dst_r = h_input0_ptr;
+    float* dst_g = h_input0_ptr + area;
+    float* dst_b = h_input0_ptr + (area * 2);
 
     const float norm_scale = 1.0f / 255.0f;
 
-    //Single-pass conversion directly to CUDA memory
+    //Single-pass conversion into host memory
     for (int i = 0; i < area; ++i) {
         dst_b[i] = src_ptr[i * 3 + 0] * norm_scale;
         dst_g[i] = src_ptr[i * 3 + 1] * norm_scale;

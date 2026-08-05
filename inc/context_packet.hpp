@@ -73,58 +73,77 @@ struct bb_context_packet
     
     float* d_cov = nullptr;
 
+    // Body-pose engine I/O: real device memory (cudaMalloc), not zero-copy mapped host
+    // memory. The bodypose3dnet engine's small auxiliary inputs (k_inv, t_form_inv,
+    // the limb-length tensors) are not reliably readable by the GPU when bound to a
+    // host-mapped pointer on this TensorRT build, even though the pointer is numerically
+    // valid under UVA -- it silently produces NaN in the pose3d output. Real device
+    // memory plus explicit cudaMemcpy is the pattern confirmed to work.
     float *d_input0 = nullptr, *d_k_inv = nullptr, *d_t_form_inv = nullptr;
     float *d_scale_norm_limb = nullptr, *d_mean_limb = nullptr;
 
     float *d_pose2d = nullptr, *d_pose2d_org = nullptr, *d_pose25d = nullptr, *d_pose3d = nullptr;
+
+    // Host-side staging/readback buffers paired with the device buffers above.
+    float* h_input0 = nullptr;
+    float h_pose2d[num_keypoints * 3];
+    float h_pose25d[num_keypoints * 4];
+    float h_pose3d[num_keypoints * 3];
 
     bb_context_packet() {
         cudaHostAlloc((void**)&d_input, (INPUT_ELEMENTS + TRT_PADDING) * sizeof(float), cudaHostAllocMapped);
         cudaHostAlloc((void**)&d_bbox, (BBOX_ELEMENTS + TRT_PADDING) * sizeof(float), cudaHostAllocMapped);
         cudaHostAlloc((void**)&d_cov, (COV_ELEMENTS + TRT_PADDING) * sizeof(float), cudaHostAllocMapped);
 
-        cudaHostAlloc((void**)&d_input0, 1 * 3 * input_h * input_w * sizeof(float), cudaHostAllocMapped);
-        cudaHostAlloc((void**)&d_k_inv, 1 * 3 * 3 * sizeof(float), cudaHostAllocMapped);
-        cudaHostAlloc((void**)&d_t_form_inv, 1 * 3 * 3 * sizeof(float), cudaHostAllocMapped);
-        cudaHostAlloc((void**)&d_scale_norm_limb, 1 * 36 * sizeof(float), cudaHostAllocMapped);
-        cudaHostAlloc((void**)&d_mean_limb, 1 * 36 * sizeof(float), cudaHostAllocMapped);
+        cudaMalloc((void**)&d_input0, 1 * 3 * input_h * input_w * sizeof(float));
+        cudaMalloc((void**)&d_k_inv, 1 * 3 * 3 * sizeof(float));
+        cudaMalloc((void**)&d_t_form_inv, 1 * 3 * 3 * sizeof(float));
+        cudaMalloc((void**)&d_scale_norm_limb, 1 * 36 * sizeof(float));
+        cudaMalloc((void**)&d_mean_limb, 1 * 36 * sizeof(float));
 
-        cudaHostAlloc((void**)&d_pose2d, 1 * num_keypoints * 3 * sizeof(float), cudaHostAllocMapped);
-        cudaHostAlloc((void**)&d_pose2d_org, 1 * num_keypoints * 3 * sizeof(float), cudaHostAllocMapped);
-        cudaHostAlloc((void**)&d_pose25d, 1 * num_keypoints * 4 * sizeof(float), cudaHostAllocMapped);
-        cudaHostAlloc((void**)&d_pose3d, 1 * num_keypoints * 3 * sizeof(float), cudaHostAllocMapped);
+        cudaMalloc((void**)&d_pose2d, 1 * num_keypoints * 3 * sizeof(float));
+        cudaMalloc((void**)&d_pose2d_org, 1 * num_keypoints * 3 * sizeof(float));
+        cudaMalloc((void**)&d_pose25d, 1 * num_keypoints * 4 * sizeof(float));
+        cudaMalloc((void**)&d_pose3d, 1 * num_keypoints * 3 * sizeof(float));
+
+        cudaMallocHost((void**)&h_input0, 1 * 3 * input_h * input_w * sizeof(float));
 
         std::memset(d_input, 0, (INPUT_ELEMENTS + TRT_PADDING) * sizeof(float));
         std::memset(d_bbox, 0, (BBOX_ELEMENTS + TRT_PADDING) * sizeof(float));
         std::memset(d_cov, 0, (COV_ELEMENTS + TRT_PADDING) * sizeof(float));
 
-        std::memset(d_pose2d, 0, 1 * num_keypoints * 3 * sizeof(float));
-        std::memset(d_pose2d_org, 0, 1 * num_keypoints * 3 * sizeof(float));
-        std::memset(d_pose25d, 0, 1 * num_keypoints * 4 * sizeof(float));
-        std::memset(d_pose3d, 0, 1 * num_keypoints * 3 * sizeof(float));
-        
-        std::memcpy(d_scale_norm_limb, scale_normalized_mean_limb_lengths.data(), 36 * sizeof(float));
-        std::memcpy(d_mean_limb, mean_limb_lengths.data(), 36 * sizeof(float));
+        cudaMemset(d_pose2d, 0, 1 * num_keypoints * 3 * sizeof(float));
+        cudaMemset(d_pose2d_org, 0, 1 * num_keypoints * 3 * sizeof(float));
+        cudaMemset(d_pose25d, 0, 1 * num_keypoints * 4 * sizeof(float));
+        cudaMemset(d_pose3d, 0, 1 * num_keypoints * 3 * sizeof(float));
+        std::memset(h_pose2d, 0, sizeof(h_pose2d));
+        std::memset(h_pose25d, 0, sizeof(h_pose25d));
+        std::memset(h_pose3d, 0, sizeof(h_pose3d));
+
+        cudaMemcpy(d_scale_norm_limb, scale_normalized_mean_limb_lengths.data(), 36 * sizeof(float), cudaMemcpyHostToDevice);
+        cudaMemcpy(d_mean_limb, mean_limb_lengths.data(), 36 * sizeof(float), cudaMemcpyHostToDevice);
 
         model_input.create(cv::Size(960, 544), CV_8UC3);
     }
-    
+
     // clean up CUDA memory safely when the packet is destroyed
     ~bb_context_packet() {
 if (d_input) cudaFreeHost(d_input);
         if (d_bbox) cudaFreeHost(d_bbox);
         if (d_cov) cudaFreeHost(d_cov);
 
-        if (d_input0) cudaFreeHost(d_input0);
-        if (d_k_inv) cudaFreeHost(d_k_inv);
-        if (d_t_form_inv) cudaFreeHost(d_t_form_inv);
-        if (d_scale_norm_limb) cudaFreeHost(d_scale_norm_limb);
-        if (d_mean_limb) cudaFreeHost(d_mean_limb);
-        
-        if (d_pose2d) cudaFreeHost(d_pose2d);
-        if (d_pose2d_org) cudaFreeHost(d_pose2d_org);
-        if (d_pose25d) cudaFreeHost(d_pose25d);
-        if (d_pose3d) cudaFreeHost(d_pose3d);
+        if (d_input0) cudaFree(d_input0);
+        if (d_k_inv) cudaFree(d_k_inv);
+        if (d_t_form_inv) cudaFree(d_t_form_inv);
+        if (d_scale_norm_limb) cudaFree(d_scale_norm_limb);
+        if (d_mean_limb) cudaFree(d_mean_limb);
+
+        if (d_pose2d) cudaFree(d_pose2d);
+        if (d_pose2d_org) cudaFree(d_pose2d_org);
+        if (d_pose25d) cudaFree(d_pose25d);
+        if (d_pose3d) cudaFree(d_pose3d);
+
+        if (h_input0) cudaFreeHost(h_input0);
     }
 
     // prevent accidental deep copies that would cause double-frees
