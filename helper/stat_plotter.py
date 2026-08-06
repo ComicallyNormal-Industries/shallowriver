@@ -35,8 +35,19 @@ def load_perf_csv(filepath):
         return None
 
     df = pd.read_csv(filepath, comment='#')
+
+    # A row can arrive truncated (e.g. a bare "cam1," with nothing after it) if the
+    # app was still writing this file when it got interrupted -- pandas doesn't error
+    # on that, it silently fills the missing fields with NaN, which would corrupt
+    # plot_summary_bar (it reads the *last* row as the run's final numbers). Drop
+    # anything incomplete rather than risk it looking like a graph value.
+    incomplete = df.isna().any(axis=1)
+    if incomplete.any():
+        print(f"Warning: '{filepath}' has {incomplete.sum()} incomplete row(s) (likely a truncated write); dropping them.")
+        df = df[~incomplete]
+
     if df.empty:
-        print(f"Warning: '{filepath}' has no data rows yet.")
+        print(f"Warning: '{filepath}' has no complete data rows.")
         return None
 
     return df
