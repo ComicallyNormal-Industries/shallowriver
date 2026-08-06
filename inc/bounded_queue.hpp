@@ -86,21 +86,35 @@ private:
     T* read_buf_ = nullptr;
 };
 
-// Same as SPSCLatestValueCuda, but supports two producers (P=2).
+// Same idea as SPSCLatestValueCuda, but supports two producers (P=2), each with its
+// own independent triple-buffer slot -- NOT one slot shared between producers.
+//
+// An earlier version funneled both producers into a single shared `ready_` atomic.
+// That let producer B's exchange silently clobber producer A's just-published value
+// before the consumer ever saw it: whichever producer happened to call exchange()
+// last within a race window "won", and the other's frame was dropped with no
+// record of it happening. With two cameras feeding this queue, whichever camera's
+// capture thread was consistently a little faster (e.g. one webcam vs. another on a
+// different USB port) would win that race most of the time, starving the other one.
+//
+// Each producer_id now gets its own slot, and wait_and_consume() alternates which
+// producer it checks first each call, so both get an equal turn regardless of how
+// fast either one happens to be producing.
+//
 // Each producer must consistently pass its own producer_id (0 or 1) and
 // only ever call produce/produce_update from a single thread for that id.
 template <typename T>
 class SPSCLatestValueCudaMulti {
 public:
     SPSCLatestValueCudaMulti() {
-        for (int i = 0; i < 4; ++i) {
-            buffers_[i] = std::make_unique<T>();
+        for (int p = 0; p < 2; ++p) {
+            for (int i = 0; i < 3; ++i) {
+                buffers_[p][i] = std::make_unique<T>();
+            }
+            write_buf_[p] = buffers_[p][0].get();
+            read_buf_[p] = buffers_[p][2].get();
+            ready_[p].store(buffers_[p][1].get(), std::memory_order_relaxed);
         }
-
-        write_buf_[0] = buffers_[0].get();
-        write_buf_[1] = buffers_[1].get();
-        read_buf_ = buffers_[3].get();
-        ready_.store(buffers_[2].get(), std::memory_order_relaxed);
     }
 
     // Non-copyable, non-movable
@@ -113,46 +127,58 @@ public:
     void produce_update(int producer_id, F&& updater) {
         T*& write_buf = write_buf_[producer_id];
         updater(*write_buf);
-        write_buf = ready_.exchange(write_buf, std::memory_order_acq_rel);
-        has_new_.store(true, std::memory_order_release);
-        has_new_.notify_one();
+        write_buf = ready_[producer_id].exchange(write_buf, std::memory_order_acq_rel);
+        has_new_[producer_id].store(true, std::memory_order_release);
+        wake_.store(true, std::memory_order_release);
+        wake_.notify_one();
     }
 
     template <typename... Args>
     void produce(int producer_id, Args&&... args) {
         T*& write_buf = write_buf_[producer_id];
         *write_buf = T(std::forward<Args>(args)...);
-        write_buf = ready_.exchange(write_buf, std::memory_order_acq_rel);
-        has_new_.store(true, std::memory_order_release);
-        has_new_.notify_one();
+        write_buf = ready_[producer_id].exchange(write_buf, std::memory_order_acq_rel);
+        has_new_[producer_id].store(true, std::memory_order_release);
+        wake_.store(true, std::memory_order_release);
+        wake_.notify_one();
     }
 
     T* wait_and_consume() {
-        while (!has_new_.load(std::memory_order_acquire)) {
-            has_new_.wait(false, std::memory_order_relaxed);
+        while (true) {
+            if (T* v = consume()) return v;
+            wake_.wait(false, std::memory_order_relaxed);
         }
-        return consume();
     }
 
+    // Checks both producers' slots, alternating which one is checked first each
+    // call so neither producer can starve the other.
     T* consume() {
-        if (!has_new_.exchange(false, std::memory_order_acq_rel)) {
-            return nullptr;
+        for (int i = 0; i < 2; ++i) {
+            int p = (next_producer_ + i) & 1;
+            if (has_new_[p].exchange(false, std::memory_order_acq_rel)) {
+                T* latest = ready_[p].exchange(read_buf_[p], std::memory_order_acq_rel);
+                read_buf_[p] = latest;
+                next_producer_ = 1 - p;
+                wake_.store(false, std::memory_order_relaxed);
+                return latest;
+            }
         }
-        T* latest = ready_.exchange(read_buf_, std::memory_order_acq_rel);
-        read_buf_ = latest;
-        return latest;
+        wake_.store(false, std::memory_order_relaxed);
+        return nullptr;
     }
 
-    T* current() const { return read_buf_; }
+    T* current(int producer_id) const { return read_buf_[producer_id]; }
 
 private:
     static constexpr std::size_t cache_line_size = 64;
 
-    std::unique_ptr<T> buffers_[4];
+    std::unique_ptr<T> buffers_[2][3];
 
-    alignas(cache_line_size) std::atomic<T*> ready_{nullptr};
-    alignas(cache_line_size) std::atomic<bool> has_new_{false};
+    alignas(cache_line_size) std::atomic<T*> ready_[2];
+    alignas(cache_line_size) std::atomic<bool> has_new_[2] {false, false};
+    alignas(cache_line_size) std::atomic<bool> wake_{false};
 
     T* write_buf_[2] = {nullptr, nullptr};
-    T* read_buf_ = nullptr;
+    T* read_buf_[2] = {nullptr, nullptr};
+    int next_producer_ = 0;
 };
