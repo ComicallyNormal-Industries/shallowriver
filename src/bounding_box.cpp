@@ -146,7 +146,11 @@ bool bounding_box::runInference(bb_context_packet& bb_context) {
     bb_ctx.context->setTensorAddress("output_bbox/BiasAdd:0", bb_context.d_bbox);
     bb_ctx.context->setTensorAddress("output_cov/Sigmoid:0", bb_context.d_cov);
 
-    bb_ctx.context->setInputShape("input_1:0", nvinfer1::Dims4{1, 3, PEOPLENET_HEIGHT, PEOPLENET_WIDTH});
+    static bool shapes_set = false;
+    if (!shapes_set) {
+        bb_ctx.context->setInputShape("input_1:0", nvinfer1::Dims4{1, 3, PEOPLENET_HEIGHT, PEOPLENET_WIDTH});
+        shapes_set = true;
+    }
     bb_ctx.context->enqueueV3(bb_ctx.stream);
     cudaError_t sync_status = cudaStreamSynchronize(bb_ctx.stream);
 
