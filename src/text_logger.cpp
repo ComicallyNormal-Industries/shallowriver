@@ -27,13 +27,13 @@ void pose_logger::log_keypoints(const std::vector<NvAR_Point3f>& keypoints){
         return;
     }
 
-    poseFile << "--- Frame Start ---" << std::endl;
-    
+    poseFile << "--- Frame Start ---\n";
+
     for (size_t i = 0; i < keypoints.size(); ++i) {
-        poseFile << "Keypoint_" << i << ": " 
-                 << keypoints[i].x << ", " 
-                 << keypoints[i].y << ", " 
-                 << keypoints[i].z << std::endl;
+        poseFile << "Keypoint_" << i << ": "
+                 << keypoints[i].x << ", "
+                 << keypoints[i].y << ", "
+                 << keypoints[i].z << '\n';
     }
 
 }
