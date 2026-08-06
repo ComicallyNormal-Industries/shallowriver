@@ -2,10 +2,12 @@
 
 PacketPool global_pool;
 
-int runner::setup(int mode, int camera_mode) {
+int runner::setup(int mode, int camera_mode, bool enable_logging) {
 
     stream_resolution = cv::Size(1920, 1080);
     peoplenet_resolution = cv::Size(960, 544);
+
+    enable_perf_logging = enable_logging;
 
 	bool rebuild = false;
 	if (mode == 2){
@@ -77,6 +79,8 @@ int runner::setup(int mode, int camera_mode) {
 
 	text_log_file_1 = "res/3d_key_points_1.txt";
     text_log_file_2 = "res/3d_key_points_2.txt";
+    perf_log_file_1 = "res/perf_1.csv";
+    perf_log_file_2 = "res/perf_2.csv";
 
 	std::cout << "set up bounding box runner" << std::endl;
 	if(!bbox_runner.setup(bb_engine_file,bb_onnx_file, peoplenet_resolution, rebuild)){
@@ -97,12 +101,15 @@ int runner::setup(int mode, int camera_mode) {
 
 	p_logger_1.initPoseLogger(text_log_file_1);
     p_logger_2.initPoseLogger(text_log_file_2);
-	
-	return 1;	
+
+    p_perf_1.init(perf_log_file_1, "cam1", enable_perf_logging);
+    p_perf_2.init(perf_log_file_2, "cam2", enable_perf_logging);
+
+	return 1;
 }
 
-int runner::run(int mode, int camera_mode) {
-    if(setup(mode, camera_mode) != 1){
+int runner::run(int mode, int camera_mode, bool enable_logging) {
+    if(setup(mode, camera_mode, enable_logging) != 1){
         std::cout << "runner setup failed" << std::endl;
         return -1;
     }

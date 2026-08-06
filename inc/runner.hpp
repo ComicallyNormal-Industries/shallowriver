@@ -30,6 +30,10 @@ class runner {
 		std::string calib_file2;
 		std::string text_log_file_1;
 		std::string text_log_file_2;
+		std::string perf_log_file_1;
+		std::string perf_log_file_2;
+
+		bool enable_perf_logging = false;
 
 		CameraGeometry geo1;
 		CameraGeometry geo2;
@@ -44,6 +48,9 @@ class runner {
 
 		pose_logger p_logger_1;
 		pose_logger p_logger_2;
+
+		perf_logger p_perf_1;
+		perf_logger p_perf_2;
 
 		std::chrono::high_resolution_clock::time_point last_frame_time;
     	float current_fps = 0.0f;
@@ -64,7 +71,7 @@ class runner {
 
 		std::vector<NvAR_Point3f> processBodyPoseOutput(const float* pose25d, const float* pose3d_raw, int numKeypoints, const cv::Rect& person_box, int crop_w, int crop_h, const cv::Mat& cameraMatrix);
 
-		int setup(int mode, int camera_mode);
+		int setup(int mode, int camera_mode, bool enable_logging = false);
 
 		SPSCLatestValueCudaMulti<PacketPtr>  q1_2{};
     	SPSCLatestValueCuda<PacketPtr>   q2_3{};
@@ -76,6 +83,6 @@ class runner {
     	void stage3_pose();
     	void stage4_output();
 
-		int run(int mode, int camera_id);
+		int run(int mode, int camera_id, bool enable_logging = false);
 
 };

@@ -1,13 +1,14 @@
 #include "runner.hpp"
 #include "intrinsics.hpp"
 #include <iostream>
-#include <string>    
+#include <string>
+#include <vector>
 
 // Updated to accept the camera_mode
-int run_inference(int operating_mode, int camera_mode){
+int run_inference(int operating_mode, int camera_mode, bool enable_logging){
     runner model_runner;
 
-    int exit_code = model_runner.run(operating_mode, camera_mode);
+    int exit_code = model_runner.run(operating_mode, camera_mode, enable_logging);
 
     std::cout << "shallowriver shutting down with code: " << exit_code << std::endl;
     return exit_code;
@@ -16,24 +17,39 @@ int run_inference(int operating_mode, int camera_mode){
 void display_help(){
     std::cerr << "Valid options:\n";
     std::cerr << "  --calibrate --c [1|2]      : run camera intrinsics calibration on camera 1 or 2\n";
-    std::cerr << "  --run       --r [1|2|both] : run inference on camera 1, 2, or both\n"; 
+    std::cerr << "  --run       --r [1|2|both] : run inference on camera 1, 2, or both\n";
     std::cerr << "  --engine    --e [1|2|both] : recompile .engine files and run inference\n";
     std::cerr << "  --generate  --g          : run charuco board generator\n";
+    std::cerr << "  --log       --l          : enable per-frame fps/latency CSV logging (with --run/--engine)\n";
     std::cerr << "  --help      --h          : display help\n";
 }
 
 int main(int argc, char** argv) {
     std::cout << "Starting shallowriver on ARM Jetson..." << std::endl;
 
+    // Pull --log/--l out from wherever it appears on the command line, so it can be
+    // combined with any mode (e.g. "--run both --log" or "--log --run both") without
+    // disturbing the positional mode/camera arguments below.
+    bool enable_logging = false;
+    std::vector<std::string> args;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--log" || arg == "--l") {
+            enable_logging = true;
+        } else {
+            args.push_back(arg);
+        }
+    }
+
     // Check for at least one command line argument
-    if (argc < 2) {
+    if (args.empty()) {
         std::cerr << "No arguments detected! Please run camera intrinsics or inference\n";
         display_help();
         return -1;
     }
 
-    std::string mode = argv[1];
-    std::string cam_arg = (argc > 2) ? argv[2] : "1"; 
+    std::string mode = args[0];
+    std::string cam_arg = (args.size() > 1) ? args[1] : "1";
 
     if (mode == "--calibrate" || mode == "--c") {
         int cam_id = (cam_arg == "2") ? 2 : 1;
@@ -54,7 +70,10 @@ int main(int argc, char** argv) {
         }
 
         std::cout << "Running inference on camera(s): " << (cam_mode == 3 ? "both" : std::to_string(cam_mode)) << " ..." << std::endl;
-        return run_inference(operating_mode, cam_mode);
+        if (enable_logging) {
+            std::cout << "Per-frame fps/latency logging enabled (--log)." << std::endl;
+        }
+        return run_inference(operating_mode, cam_mode, enable_logging);
     }
     else if (mode == "--generate" || mode == "--g") {
         std::cout << "Running charuco board generator..." << std::endl;
