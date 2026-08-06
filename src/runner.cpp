@@ -179,6 +179,7 @@ void runner::stage1_capture() {
         if (!p) continue; 
 
         p->t_cap = cap_time;
+        p->t_capture_ts = t_end;
         p->frame_id = frame_counter++;
         frame.copyTo(p->raw_frame);
         p->bboxes.clear();
@@ -209,6 +210,7 @@ void runner::stage1_capture2() {
         if (!p) continue; 
 
         p->t_cap = cap_time;
+        p->t_capture_ts = t_end;
         p->frame_id = frame_counter++;
         frame.copyTo(p->raw_frame);
         p->bboxes.clear();
@@ -371,6 +373,18 @@ void runner::stage4_output() {
 
         // Start timing Stage 4 execution for this frame
         auto t_s4_start = std::chrono::steady_clock::now();
+
+        // Per-frame perf logging (--log): latency is measured end-to-end, from the
+        // moment the frame was captured (t_capture_ts) to right here at output --
+        // this naturally includes any time the frame spent waiting in the inter-stage
+        // queues, not just active processing time, matching what DeepStream's
+        // ntp_timestamp-based latency measures.
+        double frame_latency_ms = std::chrono::duration<double, std::milli>(t_s4_start - p->t_capture_ts).count();
+        if (p->camera_id == 0) {
+            p_perf_1.log_frame(frame_latency_ms);
+        } else if (p->camera_id == 1) {
+            p_perf_2.log_frame(frame_latency_ms);
+        }
 
         // Safely increment the specific camera's count
         if (p->camera_id == 0 || p->camera_id == 1) {

@@ -112,6 +112,10 @@ void perf_logger::log_frame(double latency_ms) {
              << std::setprecision(2) << avg_fps << ','
              << std::setprecision(3) << avg_latency_ms << ','
              << peak_latency_ms << '\n';
+    // At only ~5-15 calls/sec the syscall cost is negligible, and it means a crash
+    // or abrupt kill loses at most the current row instead of everything still
+    // sitting in the stream buffer since the last natural flush.
+    perfFile.flush();
 }
 
 void perf_logger::deinit() {

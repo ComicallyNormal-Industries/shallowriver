@@ -1,4 +1,6 @@
 
+#include <chrono>
+
 constexpr size_t PEOPLENET_WIDTH = 960;  // 60 grid_w * 16 stride_x
 constexpr size_t PEOPLENET_HEIGHT = 544; // 34 grid_h * 16 stride_y
 constexpr size_t PEOPLENET_CHANNELS = 3;
@@ -43,6 +45,12 @@ struct bb_context_packet
 {
     //time stamp variables
     double t_cap = 0.0;
+
+    // Wall-clock moment this frame became available from the camera -- the
+    // shallowriver equivalent of DeepStream's nvstreammux ntp_timestamp. Used to
+    // compute end-to-end per-frame latency (capture -> output), including any time
+    // spent waiting in the inter-stage queues, not just active processing time.
+    std::chrono::steady_clock::time_point t_capture_ts{};
 
     double t_s2_total = 0.0;
     double t_s2_pre = 0.0;
