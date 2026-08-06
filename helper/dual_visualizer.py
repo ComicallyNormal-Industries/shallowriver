@@ -10,6 +10,85 @@ BONES = [
     (21, 23), (23, 25)
 ]
 
+# NVIDIA BodyPose3DNet 34-keypoint layout (indices used for auto-orientation).
+# Derived from the bone-index tables in NVIDIA's deepstream-bodypose-3d reference app.
+PELVIS = 0
+LEFT_HIP = 1
+RIGHT_HIP = 2
+NECK = 6
+LEFT_SHOULDER = 20
+RIGHT_SHOULDER = 21
+
+def compute_orientation(joints):
+    """
+    Builds an orthonormal (right, forward, up) basis anchored at the pelvis, so every
+    frame can be rotated into a consistent "feet down, facing the viewer" pose
+    regardless of how the person happened to be oriented relative to the camera.
+
+    up:      pelvis -> neck (spine axis). Aligning this with +Z puts the head above
+             the pelvis and the feet/ankles below it -- feet down.
+    lateral: shoulder line (right_shoulder - left_shoulder), made orthogonal to `up`.
+             Falls back to the hip line if the shoulders are degenerate (e.g. a
+             low-confidence frame where the model returned near-identical/zero points).
+    forward: cross(up, lateral). shallowriver's pose3d is a standard pinhole
+             back-projection (X right, Y down, Z depth away from the camera), so a
+             person facing the camera has right_shoulder.x < left_shoulder.x (their
+             anatomical right appears on the image's left, same as facing a mirror).
+             Working through cross(up, lateral) with that sign convention lands
+             `forward` pointing along -Z (i.e. toward the camera) whenever the person
+             actually faces it -- so aligning `forward` with the plot's +Y, combined
+             with the view angle set in draw_skeleton(), puts their front toward the
+             viewer.
+
+    Returns (rotation_matrix, pelvis) so the caller can do:
+        local_joints = (world_joints - pelvis) @ rotation_matrix.T
+    or None if the pose is too degenerate (e.g. all-zero/duplicate points) to derive
+    a stable basis from, in which case the frame is left unrotated.
+    """
+    pelvis = joints[PELVIS]
+    up = joints[NECK] - pelvis
+    up_norm = np.linalg.norm(up)
+    if up_norm < 1e-6:
+        return None
+    up = up / up_norm
+
+    def orthogonalized_lateral(a, b):
+        raw = joints[b] - joints[a]
+        raw = raw - np.dot(raw, up) * up
+        n = np.linalg.norm(raw)
+        return raw / n if n > 1e-6 else None
+
+    lateral = orthogonalized_lateral(LEFT_SHOULDER, RIGHT_SHOULDER)
+    if lateral is None:
+        lateral = orthogonalized_lateral(LEFT_HIP, RIGHT_HIP)
+    if lateral is None:
+        return None
+
+    forward = np.cross(up, lateral)
+    forward_norm = np.linalg.norm(forward)
+    if forward_norm < 1e-6:
+        return None
+    forward = forward / forward_norm
+
+    # Re-derive lateral from forward/up so the basis is exactly orthonormal even
+    # after the fallback/rounding above.
+    lateral = np.cross(forward, up)
+
+    # Rows are the new basis vectors expressed in world coordinates -- this is the
+    # rotation matrix that maps world-space points into the (lateral, forward, up) frame.
+    rotation_matrix = np.stack([lateral, forward, up], axis=0)
+    return rotation_matrix, pelvis
+
+def align_skeleton(joints):
+    """Returns a copy of joints re-oriented to a consistent feet-down,
+    facing-the-viewer pose. Falls back to the original (unrotated) joints if the
+    frame is too degenerate to compute a stable orientation from."""
+    result = compute_orientation(joints)
+    if result is None:
+        return joints
+    rotation_matrix, pelvis = result
+    return (joints - pelvis) @ rotation_matrix.T
+
 def load_data(filepath):
     """Parses labeled 'Keypoint_X: x, y, z' files separated by '--- Frame Start ---'."""
     frames = []
@@ -69,10 +148,18 @@ def load_data(filepath):
 def draw_skeleton(ax, joints, title):
     ax.clear()
 
-    # Expanded limits to capture millimeter scale variations across frames
-    ax.set_xlim(-2000, 2000)
-    ax.set_ylim(-2000, 4000)
-    ax.set_zlim(-1000, 4000)
+    joints = align_skeleton(joints)
+
+    # Pelvis-centered limits: comfortably fits a full standing body (head/arms above
+    # and to the sides, feet below) now that every frame is re-oriented the same way.
+    ax.set_xlim(-1200, 1200)
+    ax.set_ylim(-1200, 1200)
+    ax.set_zlim(-1200, 1200)
+
+    # elev/azim chosen so +Z renders up on screen and +Y (the "forward" axis computed
+    # in compute_orientation) renders toward the viewer -- verified empirically via
+    # mplot3d's proj_transform, not just assumed from the azim convention.
+    ax.view_init(elev=15, azim=90)
 
     ax.set_xlabel("X (mm)")
     ax.set_ylabel("Y (mm)")
