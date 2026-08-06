@@ -108,7 +108,9 @@ int runner::setup(int mode, int camera_mode, bool enable_logging) {
 	return 1;
 }
 
-int runner::run(int mode, int camera_mode, bool enable_logging) {
+int runner::run(int mode, int camera_mode, bool enable_logging, bool enable_print) {
+    enable_print_stats = enable_print;
+
     if(setup(mode, camera_mode, enable_logging) != 1){
         std::cout << "runner setup failed" << std::endl;
         return -1;
@@ -395,7 +397,7 @@ void runner::stage4_output() {
             int total_frames = frame_counts[0] + frame_counts[1];
             double total_fps = current_fps[0] + current_fps[1];
             
-            if (total_frames > 0) {
+            if (total_frames > 0 && enable_print_stats) {
                 std::cout << "\n=======================================================\n";
                 std::cout << " Pipeline Benchmark (Total Throughput: " << total_fps << " FPS)\n";
                 std::cout << " Cam 0: " << current_fps[0] << " FPS | Cam 1: " << current_fps[1] << " FPS\n";

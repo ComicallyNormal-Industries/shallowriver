@@ -34,6 +34,7 @@ class runner {
 		std::string perf_log_file_2;
 
 		bool enable_perf_logging = false;
+		bool enable_print_stats = false;
 
 		CameraGeometry geo1;
 		CameraGeometry geo2;
@@ -83,6 +84,6 @@ class runner {
     	void stage3_pose();
     	void stage4_output();
 
-		int run(int mode, int camera_id, bool enable_logging = false);
+		int run(int mode, int camera_id, bool enable_logging = false, bool enable_print = false);
 
 };
