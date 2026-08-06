@@ -274,18 +274,20 @@ void runner::stage3_pose() {
                 auto t0 = std::chrono::steady_clock::now();
 
                 //Setup k_inv BEFORE inference!
-                //d_k_inv/d_t_form_inv are real device memory (cudaMalloc), not CPU-addressable,
-                //so a host-to-device cudaMemcpy is required to get data onto the GPU.
+                //Write into the pinned h_k_inv/h_t_form_inv staging buffers (plain CPU copy,
+                //no GPU round trip here). processAndRunBodyPose does the actual host-to-device
+                //transfer as an async copy on bp_ctx.stream, pipelined with input0 and inference,
+                //so the pose thread only blocks once, at the end, instead of on every small copy.
                 if (p->camera_id == 0) {
-                    cudaMemcpy(p->d_k_inv, geo1.cameraMatrixInverseFloat.ptr<float>(), 9 * sizeof(float), cudaMemcpyHostToDevice);
+                    std::memcpy(p->h_k_inv, geo1.cameraMatrixInverseFloat.ptr<float>(), 9 * sizeof(float));
                 } else {
-                    cudaMemcpy(p->d_k_inv, geo2.cameraMatrixInverseFloat.ptr<float>(), 9 * sizeof(float), cudaMemcpyHostToDevice);
+                    std::memcpy(p->h_k_inv, geo2.cameraMatrixInverseFloat.ptr<float>(), 9 * sizeof(float));
                 }
 
                 //Preprocess Crop (writes into the host staging buffer h_input0; processAndRunBodyPose
                 //copies it to the device buffer d_input0 before inference)
                 preprocessBodyPoseInput(p->model_input, box, input_w, input_h, p->h_input0, t_form_inv);
-                cudaMemcpy(p->d_t_form_inv, t_form_inv.ptr<float>(), 9 * sizeof(float), cudaMemcpyHostToDevice);
+                std::memcpy(p->h_t_form_inv, t_form_inv.ptr<float>(), 9 * sizeof(float));
                 p->t_s3_pre += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 
                 //Run Inference
@@ -609,8 +611,12 @@ void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Re
     cv::Mat t_form_inv_double = t_form_3x3.inv(); 
     t_form_inv_double.convertTo(out_t_form_inv, CV_32F);
 
-    //Warp the frame (OpenCV automatically pads empty space with black)
-    cv::Mat cropped_person;
+    //Warp the frame (OpenCV automatically pads empty space with black).
+    //`static thread_local` so the underlying buffer is allocated once and reused across
+    //calls instead of a fresh ~147KB heap allocation every person, every frame -- warpAffine
+    //only reallocates when size/type actually change, which they never do here. Safe since
+    //this is only ever called from the single stage3_pose thread.
+    static thread_local cv::Mat cropped_person;
     cv::warpAffine(original_frame, cropped_person, t_form, cv::Size(input_w, input_h), cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(0,0,0));
     
     //Convert to an RGB planar blob (replaces blobFromImage), written into the host

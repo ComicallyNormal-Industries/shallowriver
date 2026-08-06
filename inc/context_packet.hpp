@@ -85,10 +85,25 @@ struct bb_context_packet
     float *d_pose2d = nullptr, *d_pose2d_org = nullptr, *d_pose25d = nullptr, *d_pose3d = nullptr;
 
     // Host-side staging/readback buffers paired with the device buffers above.
+    // These must be pinned (cudaMallocHost), not plain heap/stack memory: cudaMemcpyAsync
+    // against pageable memory silently falls back to a blocking copy, which would defeat
+    // the point of putting them on bp_ctx.stream alongside the input0 transfer and inference.
     float* h_input0 = nullptr;
-    float h_pose2d[num_keypoints * 3];
-    float h_pose25d[num_keypoints * 4];
-    float h_pose3d[num_keypoints * 3];
+    float* h_k_inv = nullptr;
+    float* h_t_form_inv = nullptr;
+    float* h_pose2d = nullptr;
+    float* h_pose25d = nullptr;
+    float* h_pose3d = nullptr;
+
+    // Backing allocations for the k_inv/t_form_inv pair and the pose2d/pose25d/pose3d
+    // trio. d_k_inv/d_t_form_inv and h_k_inv/h_t_form_inv above are just offsets into
+    // these, so one contiguous cudaMemcpyAsync can move both instead of two separate
+    // calls (same idea for the three pose outputs). pose2d_org_img is unused by the
+    // rest of the pipeline so it stays a standalone allocation, not worth folding in.
+    float* d_k_inv_t_form = nullptr;
+    float* h_k_inv_t_form = nullptr;
+    float* d_pose_out = nullptr;
+    float* h_pose_out = nullptr;
 
     bb_context_packet() {
         cudaHostAlloc((void**)&d_input, (INPUT_ELEMENTS + TRT_PADDING) * sizeof(float), cudaHostAllocMapped);
@@ -96,29 +111,37 @@ struct bb_context_packet
         cudaHostAlloc((void**)&d_cov, (COV_ELEMENTS + TRT_PADDING) * sizeof(float), cudaHostAllocMapped);
 
         cudaMalloc((void**)&d_input0, 1 * 3 * input_h * input_w * sizeof(float));
-        cudaMalloc((void**)&d_k_inv, 1 * 3 * 3 * sizeof(float));
-        cudaMalloc((void**)&d_t_form_inv, 1 * 3 * 3 * sizeof(float));
         cudaMalloc((void**)&d_scale_norm_limb, 1 * 36 * sizeof(float));
         cudaMalloc((void**)&d_mean_limb, 1 * 36 * sizeof(float));
-
-        cudaMalloc((void**)&d_pose2d, 1 * num_keypoints * 3 * sizeof(float));
         cudaMalloc((void**)&d_pose2d_org, 1 * num_keypoints * 3 * sizeof(float));
-        cudaMalloc((void**)&d_pose25d, 1 * num_keypoints * 4 * sizeof(float));
-        cudaMalloc((void**)&d_pose3d, 1 * num_keypoints * 3 * sizeof(float));
+
+        cudaMalloc((void**)&d_k_inv_t_form, (9 + 9) * sizeof(float));
+        d_k_inv = d_k_inv_t_form;
+        d_t_form_inv = d_k_inv_t_form + 9;
+
+        cudaMalloc((void**)&d_pose_out, (num_keypoints * 3 + num_keypoints * 4 + num_keypoints * 3) * sizeof(float));
+        d_pose2d = d_pose_out;
+        d_pose25d = d_pose_out + num_keypoints * 3;
+        d_pose3d = d_pose_out + num_keypoints * 3 + num_keypoints * 4;
 
         cudaMallocHost((void**)&h_input0, 1 * 3 * input_h * input_w * sizeof(float));
+
+        cudaMallocHost((void**)&h_k_inv_t_form, (9 + 9) * sizeof(float));
+        h_k_inv = h_k_inv_t_form;
+        h_t_form_inv = h_k_inv_t_form + 9;
+
+        cudaMallocHost((void**)&h_pose_out, (num_keypoints * 3 + num_keypoints * 4 + num_keypoints * 3) * sizeof(float));
+        h_pose2d = h_pose_out;
+        h_pose25d = h_pose_out + num_keypoints * 3;
+        h_pose3d = h_pose_out + num_keypoints * 3 + num_keypoints * 4;
 
         std::memset(d_input, 0, (INPUT_ELEMENTS + TRT_PADDING) * sizeof(float));
         std::memset(d_bbox, 0, (BBOX_ELEMENTS + TRT_PADDING) * sizeof(float));
         std::memset(d_cov, 0, (COV_ELEMENTS + TRT_PADDING) * sizeof(float));
 
-        cudaMemset(d_pose2d, 0, 1 * num_keypoints * 3 * sizeof(float));
         cudaMemset(d_pose2d_org, 0, 1 * num_keypoints * 3 * sizeof(float));
-        cudaMemset(d_pose25d, 0, 1 * num_keypoints * 4 * sizeof(float));
-        cudaMemset(d_pose3d, 0, 1 * num_keypoints * 3 * sizeof(float));
-        std::memset(h_pose2d, 0, sizeof(h_pose2d));
-        std::memset(h_pose25d, 0, sizeof(h_pose25d));
-        std::memset(h_pose3d, 0, sizeof(h_pose3d));
+        cudaMemset(d_pose_out, 0, (num_keypoints * 3 + num_keypoints * 4 + num_keypoints * 3) * sizeof(float));
+        std::memset(h_pose_out, 0, (num_keypoints * 3 + num_keypoints * 4 + num_keypoints * 3) * sizeof(float));
 
         cudaMemcpy(d_scale_norm_limb, scale_normalized_mean_limb_lengths.data(), 36 * sizeof(float), cudaMemcpyHostToDevice);
         cudaMemcpy(d_mean_limb, mean_limb_lengths.data(), 36 * sizeof(float), cudaMemcpyHostToDevice);
@@ -133,17 +156,16 @@ if (d_input) cudaFreeHost(d_input);
         if (d_cov) cudaFreeHost(d_cov);
 
         if (d_input0) cudaFree(d_input0);
-        if (d_k_inv) cudaFree(d_k_inv);
-        if (d_t_form_inv) cudaFree(d_t_form_inv);
+        if (d_k_inv_t_form) cudaFree(d_k_inv_t_form);
         if (d_scale_norm_limb) cudaFree(d_scale_norm_limb);
         if (d_mean_limb) cudaFree(d_mean_limb);
 
-        if (d_pose2d) cudaFree(d_pose2d);
         if (d_pose2d_org) cudaFree(d_pose2d_org);
-        if (d_pose25d) cudaFree(d_pose25d);
-        if (d_pose3d) cudaFree(d_pose3d);
+        if (d_pose_out) cudaFree(d_pose_out);
 
         if (h_input0) cudaFreeHost(h_input0);
+        if (h_k_inv_t_form) cudaFreeHost(h_k_inv_t_form);
+        if (h_pose_out) cudaFreeHost(h_pose_out);
     }
 
     // prevent accidental deep copies that would cause double-frees

@@ -84,7 +84,7 @@ bool pose_estimation::compileOnnxToEngine(const std::string& onnxPath, const std
     std::cout << "Hardware mapping validation initialized..." << std::endl;
 
 	if (builder->platformHasFastFp16()) {
-        //config->setFlag(nvinfer1::BuilderFlag::kFP16);
+        config->setFlag(nvinfer1::BuilderFlag::kFP16);
         std::cout << "FP16 Hardware detected. Enabling FP16 optimization." << std::endl;
     } else {
         std::cout << "Warning: FP16 not supported on this device. Using FP32." << std::endl;
@@ -141,7 +141,13 @@ std::vector<char> pose_estimation::loadEngineFile(const std::string& filename) {
 
 void pose_estimation::processAndRunBodyPose(bb_context_packet& context_packet) {
 
+    // All host-to-device transfers are queued on bp_ctx.stream, back to back with the
+    // inference itself -- no cudaStreamSynchronize happens until the very end, so the
+    // driver can pipeline these copies against the kernel launch instead of forcing the
+    // pose thread to block on each one individually.
     cudaMemcpyAsync(context_packet.d_input0, context_packet.h_input0, 1 * 3 * input_h * input_w * sizeof(float), cudaMemcpyHostToDevice, bp_ctx.stream);
+    // k_inv and t_form_inv are adjacent slices of one allocation, so both move in a single call.
+    cudaMemcpyAsync(context_packet.d_k_inv_t_form, context_packet.h_k_inv_t_form, (9 + 9) * sizeof(float), cudaMemcpyHostToDevice, bp_ctx.stream);
 
     bp_ctx.context->setTensorAddress("input0", context_packet.d_input0);
     bp_ctx.context->setTensorAddress("k_inv", context_packet.d_k_inv);
@@ -165,9 +171,8 @@ void pose_estimation::processAndRunBodyPose(bb_context_packet& context_packet) {
         return;
     }
 
-    cudaMemcpyAsync(context_packet.h_pose2d, context_packet.d_pose2d, num_keypoints * 3 * sizeof(float), cudaMemcpyDeviceToHost, bp_ctx.stream);
-    cudaMemcpyAsync(context_packet.h_pose25d, context_packet.d_pose25d, num_keypoints * 4 * sizeof(float), cudaMemcpyDeviceToHost, bp_ctx.stream);
-    cudaMemcpyAsync(context_packet.h_pose3d, context_packet.d_pose3d, num_keypoints * 3 * sizeof(float), cudaMemcpyDeviceToHost, bp_ctx.stream);
+    // pose2d/pose25d/pose3d are adjacent slices of one allocation, so all three come back in a single call.
+    cudaMemcpyAsync(context_packet.h_pose_out, context_packet.d_pose_out, (num_keypoints * 3 + num_keypoints * 4 + num_keypoints * 3) * sizeof(float), cudaMemcpyDeviceToHost, bp_ctx.stream);
 
     cudaStreamSynchronize(bp_ctx.stream);
 }
