@@ -1,5 +1,6 @@
 #include "intrinsics.hpp"
 #include "camera_defs.hpp"
+#include "paths.hpp"
 // Explicitly define your verified, exact physical board specifications
 const int SQUARES_X = 4;               
 const int SQUARES_Y = 6;               
@@ -10,10 +11,10 @@ const auto ARUCO_DICT = cv::aruco::DICT_6X6_250;
 int intrinsics::save_intrinsics(int camera_id, cv::Mat cameraMatrix, cv::Mat distCoeffs){
     std::string file_name;
     if (camera_id == 1){
-        file_name = "res/calibration_1.yaml";
+        file_name = paths::data_dir() + "/calibration_1.yaml";
     }
     else if (camera_id == 2){
-        file_name = "res/calibration_2.yaml";
+        file_name = paths::data_dir() + "/calibration_2.yaml";
     }
     else {
         std::cerr << "Error: invalide camera id number cannot save intrinsics to file" << std::endl;
@@ -183,8 +184,9 @@ int intrinsics::generate_charuco() {
     board.generateImage(imageSize, boardImage, 0, 1);
 
     //Save to disk
-    if (cv::imwrite("charuco_board.png", boardImage)) {
-        std::cout << "Success! Saved 'charuco_board.png' to the current directory." << std::endl;
+    std::string board_file = paths::data_dir() + "/charuco_board.png";
+    if (cv::imwrite(board_file, boardImage)) {
+        std::cout << "Success! Saved '" << board_file << "'." << std::endl;
         std::cout << "Please print this without scaling (100% scale) for accurate calibration." << std::endl;
 		std::cout << "Use the following size settings to print the image correctly: " << std::endl;
 		std::cout << "Target Width: 6.30 inches (exactly 160 mm)" << std::endl;
