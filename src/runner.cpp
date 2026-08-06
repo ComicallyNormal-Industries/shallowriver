@@ -1,5 +1,6 @@
 #include "runner.hpp"
 #include <filesystem>
+#include "paths.hpp"
 
 PacketPool global_pool;
 
@@ -20,7 +21,7 @@ int runner::setup(int mode, int camera_mode, bool enable_logging) {
             std::cerr << "Error: Failed to open camera 1 with GStreamer!" << std::endl;
             return -1;
         }
-        calib_file1 = "res/calibration_1.yaml";
+        calib_file1 = paths::data_dir() + "/calibration_1.yaml";
         if (!loadAndScaleIntrinsics(calib_file1, stream_resolution, peoplenet_resolution, geo1)) {
             std::cerr << "Warning: Could not load calibration data camera 1." << std::endl;
             return -1;
@@ -32,12 +33,12 @@ int runner::setup(int mode, int camera_mode, bool enable_logging) {
             std::cerr << "Error: Failed to open camera 2 with GStreamer!" << std::endl;
             return -1;
         }
-        calib_file2 = "res/calibration_2.yaml";
+        calib_file2 = paths::data_dir() + "/calibration_2.yaml";
         if (!loadAndScaleIntrinsics(calib_file2, stream_resolution, peoplenet_resolution, geo2)) {
             std::cerr << "Warning: Could not load calibration data camera 2." << std::endl;
             return -1;
         }
-        
+
     }
     else if (camera_mode == 3){
         cap1.open(gst_cam1, cv::CAP_GSTREAMER);
@@ -56,8 +57,8 @@ int runner::setup(int mode, int camera_mode, bool enable_logging) {
             std::cerr << "Error: Failed to open camera 2 with GStreamer!" << std::endl;
             return -1;
         } 
-        calib_file1 = "res/calibration_1.yaml";
-        calib_file2 = "res/calibration_2.yaml";
+        calib_file1 = paths::data_dir() + "/calibration_1.yaml";
+        calib_file2 = paths::data_dir() + "/calibration_2.yaml";
         if (!loadAndScaleIntrinsics(calib_file1, stream_resolution, peoplenet_resolution, geo1)) {
             std::cerr << "Warning: Could not load calibration data camera 1." << std::endl;
             return -1;
@@ -73,18 +74,18 @@ int runner::setup(int mode, int camera_mode, bool enable_logging) {
         return -1;
     }
 
-    bb_onnx_file = "res/resnet34_peoplenet.onnx";
-    bb_engine_file = "res/peoplenet.engine";
-    bp_onnx_file = "res/bodypose3dnet_performance.onnx";
-    bp_engine_file = "res/bodypose3dnet_performance.engine";
+    bb_onnx_file = paths::asset_dir() + "/resnet34_peoplenet.onnx";
+    bb_engine_file = paths::data_dir() + "/peoplenet.engine";
+    bp_onnx_file = paths::asset_dir() + "/bodypose3dnet_performance.onnx";
+    bp_engine_file = paths::data_dir() + "/bodypose3dnet_performance.engine";
 
 	std::filesystem::create_directories("logging");
 	std::filesystem::create_directories("output");
 
-	text_log_file_1 = "output/3d_key_points_1.txt";
-    text_log_file_2 = "output/3d_key_points_2.txt";
-    perf_log_file_1 = "logging/perf_1.csv";
-    perf_log_file_2 = "logging/perf_2.csv";
+	text_log_file_1 = paths::data_dir() + "output/3d_key_points_1.txt";
+    text_log_file_2 = paths::data_dir() + "output/3d_key_points_2.txt";
+    perf_log_file_1 = paths::data_dir() + "logging/perf_1.csv";
+    perf_log_file_2 = paths::data_dir() + "logging/perf_2.csv";
 
 	std::cout << "set up bounding box runner" << std::endl;
 	if(!bbox_runner.setup(bb_engine_file,bb_onnx_file, peoplenet_resolution, rebuild)){
