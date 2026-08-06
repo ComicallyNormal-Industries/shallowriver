@@ -1,4 +1,5 @@
 #include "runner.hpp"
+#include <filesystem>
 
 PacketPool global_pool;
 
@@ -77,10 +78,13 @@ int runner::setup(int mode, int camera_mode, bool enable_logging) {
     bp_onnx_file = "res/bodypose3dnet_performance.onnx";
     bp_engine_file = "res/bodypose3dnet_performance.engine";
 
-	text_log_file_1 = "res/3d_key_points_1.txt";
-    text_log_file_2 = "res/3d_key_points_2.txt";
-    perf_log_file_1 = "res/perf_1.csv";
-    perf_log_file_2 = "res/perf_2.csv";
+	std::filesystem::create_directories("logging");
+	std::filesystem::create_directories("output");
+
+	text_log_file_1 = "output/3d_key_points_1.txt";
+    text_log_file_2 = "output/3d_key_points_2.txt";
+    perf_log_file_1 = "logging/perf_1.csv";
+    perf_log_file_2 = "logging/perf_2.csv";
 
 	std::cout << "set up bounding box runner" << std::endl;
 	if(!bbox_runner.setup(bb_engine_file,bb_onnx_file, peoplenet_resolution, rebuild)){
