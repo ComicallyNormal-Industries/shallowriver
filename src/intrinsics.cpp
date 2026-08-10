@@ -12,9 +12,11 @@ int intrinsics::save_intrinsics(int camera_id, cv::Mat cameraMatrix, cv::Mat dis
     std::string file_name;
     if (camera_id == 1){
         file_name = paths::data_dir() + "/calibration_1.yaml";
+        std::cout << "calibration saved here: " << file_name << std::endl;
     }
     else if (camera_id == 2){
         file_name = paths::data_dir() + "/calibration_2.yaml";
+        std::cout << "calibration saved here: " << file_name << std::endl;
     }
     else {
         std::cerr << "Error: invalide camera id number cannot save intrinsics to file" << std::endl;
