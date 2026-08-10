@@ -83,19 +83,6 @@ bool pose_estimation::compileOnnxToEngine(const std::string& onnxPath, const std
 	// Let the builder auto-optimize target arrays internally via strongly typed layout constraints
     std::cout << "Hardware mapping validation initialized..." << std::endl;
 
-	// TEMP DIAGNOSTIC: FP16 forced off to test whether the pose3d NaN comes from
-	// FP16 precision/range loss inside the engine's own math (k_inv values are
-	// ~0.0017, tiny relative to the pixel-scale coordinates they get combined
-	// with internally). Revert to the platformHasFastFp16() check below once
-	// confirmed either way.
-	std::cout << "Notice: FP16 forced off for this build (NaN diagnostic)." << std::endl;
-	// if (builder->platformHasFastFp16()) {
-	//     config->setFlag(nvinfer1::BuilderFlag::kFP16);
-	//     std::cout << "FP16 Hardware detected. Enabling FP16 optimization." << std::endl;
-	// } else {
-	//     std::cout << "Warning: FP16 not supported on this device. Using FP32." << std::endl;
-	// }
-
     nvinfer1::IHostMemory* serializedModel = builder->buildSerializedNetwork(*network, *config);
     if (!serializedModel) {
         std::cerr << "Critical Error: Model optimization engine generation failed." << std::endl;
