@@ -307,25 +307,6 @@ void runner::stage3_pose() {
                 std::memcpy(p->h_t_form_inv, t_form_inv.ptr<float>(), 9 * sizeof(float));
                 p->t_s3_pre += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 
-                // TEMP DIAGNOSTIC: dump the exact values handed to the pose engine for the
-                // first few frames per camera, to bisect whether corruption happens before
-                // this point (bad calibration math / degenerate bbox) or inside the TensorRT
-                // engine itself. Safe to delete once the NaN source is confirmed.
-                {
-                    static int debug_frames_left[2] = {5, 5};
-                    int cam = p->camera_id == 0 ? 0 : 1;
-                    if (debug_frames_left[cam] > 0) {
-                        debug_frames_left[cam]--;
-                        std::cout << "[k_inv debug] cam" << cam
-                                  << " box=(" << box.x << "," << box.y << "," << box.width << "," << box.height << ")\n";
-                        std::cout << "  h_k_inv: ";
-                        for (int i = 0; i < 9; ++i) std::cout << p->h_k_inv[i] << " ";
-                        std::cout << "\n  h_t_form_inv: ";
-                        for (int i = 0; i < 9; ++i) std::cout << p->h_t_form_inv[i] << " ";
-                        std::cout << std::endl;
-                    }
-                }
-
                 //Run Inference
                 t0 = std::chrono::steady_clock::now();
                 pose_runner.processAndRunBodyPose(*p);
