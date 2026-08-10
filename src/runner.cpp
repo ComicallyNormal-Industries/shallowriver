@@ -369,7 +369,7 @@ void runner::stage4_output() {
 
     while (running) {
         PacketPtr* in_slot = q3_4.wait_and_consume();
-        if (in_slot == nullptr) break; 
+        if (in_slot == nullptr) continue; 
         PacketPtr p = std::move(*in_slot);
         if (!p) continue; 
 
