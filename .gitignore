@@ -1,6 +1,7 @@
 # Ignore the main build directory
 build/
 res/
+build_test/
 # Ignore compiled binaries and libraries
 shallowriver
 *.o
