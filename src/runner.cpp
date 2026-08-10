@@ -79,13 +79,14 @@ int runner::setup(int mode, int camera_mode, bool enable_logging) {
     bp_onnx_file = paths::asset_dir() + "/bodypose3dnet_performance.onnx";
     bp_engine_file = paths::data_dir() + "/bodypose3dnet_performance.engine";
 
-	std::filesystem::create_directories("logging");
-	std::filesystem::create_directories("output");
+	std::string run_data_dir = paths::data_dir();
+	std::filesystem::create_directories(run_data_dir + "/logging");
+	std::filesystem::create_directories(run_data_dir + "/output");
 
-	text_log_file_1 = paths::data_dir() + "output/3d_key_points_1.txt";
-    text_log_file_2 = paths::data_dir() + "output/3d_key_points_2.txt";
-    perf_log_file_1 = paths::data_dir() + "logging/perf_1.csv";
-    perf_log_file_2 = paths::data_dir() + "logging/perf_2.csv";
+	text_log_file_1 = run_data_dir + "/output/3d_key_points_1.txt";
+    text_log_file_2 = run_data_dir + "/output/3d_key_points_2.txt";
+    perf_log_file_1 = run_data_dir + "/logging/perf_1.csv";
+    perf_log_file_2 = run_data_dir + "/logging/perf_2.csv";
 
 	std::cout << "set up bounding box runner" << std::endl;
 	if(!bbox_runner.setup(bb_engine_file,bb_onnx_file, peoplenet_resolution, rebuild)){
