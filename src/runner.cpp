@@ -493,6 +493,21 @@ bool runner::loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSi
     fs["distortion_coefficients"] >> outGeo.distortionCoeffs;
     fs.release();
 
+    // cv::FileStorage leaves the Mat empty (rather than failing) if the node is
+    // missing/malformed -- an empty calibration file would otherwise pass the
+    // isOpened() check above and go straight to .at<double>() on a 0x0 Mat,
+    // which is UB in a Release OpenCV build (no bounds check) and silently
+    // poisons every downstream 3D keypoint with NaN instead of erroring here.
+    if (outGeo.cameraMatrixOrig.rows != 3 || outGeo.cameraMatrixOrig.cols != 3) {
+        std::cerr << "Error: Calibration file " << filepath
+                   << " does not contain a valid 3x3 camera_matrix. Re-run calibration." << std::endl;
+        outGeo.cameraMatrixOrig = cv::Mat::eye(3, 3, CV_64F);
+        outGeo.cameraMatrixScaled = cv::Mat::eye(3, 3, CV_64F);
+        outGeo.cameraMatrixInverse = cv::Mat::eye(3, 3, CV_64F);
+        outGeo.distortionCoeffs = cv::Mat::zeros(1, 5, CV_64F);
+        return false;
+    }
+
     double scale_x = static_cast<double>(targetSize.width) / origSize.width;
     double scale_y = static_cast<double>(targetSize.height) / origSize.height;
 
