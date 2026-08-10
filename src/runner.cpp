@@ -231,7 +231,7 @@ void runner::stage1_capture2() {
 // --- STAGE 2: Model 1 (PeopleNet Bounding Box) ---
 void runner::stage2_bbox() {
     cudaSetDevice(0); 
-    while (true) {
+    while (running) {
         PacketPtr* in_slot = q1_2.wait_and_consume();
         if (in_slot == nullptr) continue;
         PacketPtr p = std::move(*in_slot);
@@ -267,7 +267,7 @@ void runner::stage2_bbox() {
 // --- STAGE 3: Model 2 (Body Pose 3D) ---
 void runner::stage3_pose() {
     cudaSetDevice(0); 
-    while (true) {
+    while (running) {
         PacketPtr* in_slot = q2_3.wait_and_consume();
         if (in_slot == nullptr) break; 
         PacketPtr p = std::move(*in_slot);
@@ -367,7 +367,7 @@ void runner::stage4_output() {
     double b_s3_tot = 0, b_s3_pre = 0, b_s3_inf = 0, b_s3_post = 0;
     double b_s4_tot = 0; // ADDED: Stage 4 accumulator
 
-    while (true) {
+    while (running) {
         PacketPtr* in_slot = q3_4.wait_and_consume();
         if (in_slot == nullptr) break; 
         PacketPtr p = std::move(*in_slot);
