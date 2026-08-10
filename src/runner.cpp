@@ -172,7 +172,7 @@ void runner::stage1_capture() {
         
         cv::Mat frame;
         cap1 >> frame; 
-        if (frame.empty()) break;
+        if (frame.empty()) continue;
 
         auto t_end = std::chrono::steady_clock::now();
         double cap_time = std::chrono::duration<double, std::milli>(t_end - t_start).count();
@@ -203,7 +203,7 @@ void runner::stage1_capture2() {
         
         cv::Mat frame;
         cap2 >> frame; 
-        if (frame.empty()) break;
+        if (frame.empty()) continue;
 
         auto t_end = std::chrono::steady_clock::now();
         double cap_time = std::chrono::duration<double, std::milli>(t_end - t_start).count();
@@ -269,7 +269,7 @@ void runner::stage3_pose() {
     cudaSetDevice(0); 
     while (running) {
         PacketPtr* in_slot = q2_3.wait_and_consume();
-        if (in_slot == nullptr) break; 
+        if (in_slot == nullptr) continue; 
         PacketPtr p = std::move(*in_slot);
         if (!p) continue; 
 
