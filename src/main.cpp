@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-// Updated to accept the camera_mode
+// start the pipline runner
 int run_inference(int operating_mode, int camera_mode, bool enable_logging, bool enable_print){
     runner model_runner;
 
@@ -25,6 +25,7 @@ void display_help(){
     std::cerr << "  --help      --h          : display help\n";
 }
 
+// parse command line arguments
 int main(int argc, char** argv) {
     std::cout << "Starting shallowriver on ARM Jetson..." << std::endl;
 
