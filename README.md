@@ -9,7 +9,7 @@
 
 ## Install
 
-To install using the provided apt .deb package use this command, or follow the build instructions to compile from source.
+To install using the provided apt .deb package use this command, or follow the build instructions to compile from source. Download the shallowriver.deb to /tmp and run the command there so that it does not get blocked by usr read and write protections.
 ```
 sudo apt install ./shallowriver.deb
 ```
