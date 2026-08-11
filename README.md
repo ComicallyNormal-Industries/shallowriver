@@ -32,7 +32,7 @@ sudo ./install.sh
 
 1. Building the engine file
 
-The onnx engine file must be built before running. It will take a few minutes. This can be done with the -engine or --e argument, or it is done on the first run of the project.
+The onnx engine file must be built before running. It will take 10-15 minutes. This can be done with the -engine or --e argument, or it is done on the first run of the project.
 
 2. Calibration
 
@@ -48,13 +48,6 @@ The onnx engine file must be built before running. It will take a few minutes. T
 2. Calibrate the Cameras.
 
 * To calibrate a camera use -calibrate or --c followed by 1 for the first camera or 2 for the second camera. Use the provided ChArUco board to capture 15 frames by pressing the space bar. Make sure to capture frames with the ChArUco board at the edges at different angles, and one up close covering the frame. Make sure at least four id's are showing in red over the ArUco makers before capturing a frame. When 15 frames are collected, press enter to run the calibration. Each calibration file is saved under the `/build/res` directory. Do this seperately for each camera used.
-
-<!-- std::cerr << "Valid options:\n";
-std::cerr << "  --calibrate --c [1|2]      : run camera intrinsics calibration on camera 1 or 2\n";
-std::cerr << "  --run       --r [1|2|both] : run inference on camera 1, 2, or both\n"; 
-std::cerr << "  --engine    --e [1|2|both] : recompile .engine files and run inference\n";
-std::cerr << "  --generate  --g          : run charuco board generator\n";
-std::cerr << "  --help      --h          : display help\n"; -->
 
 ## Running the project 
 
@@ -72,9 +65,16 @@ std::cerr << "  --help      --h          : display help\n"; -->
 * `--generate --g` 
   * generates the ChArUco board used for calibration. the file is put into `/build`
   * example: `./shallowriver --g`
-
+* `--log --l`
+  * enable per-frame fps/latency CSV logging (with --run/--engine)
+  * example: `./shallowriver --r both --l`
+* `--print --p` 
+  * print pipeline benchmark stats to the terminal (with --run/--engine)
+  * example: `./shallowriver --r both --p`
 
 ## outputs
+
+There are two output locations, differing based on how the project is run. When run through the apt package, the base path will be `/.local/share/shallowriver`. When running in the build directory it will be local, in `/build/res`. If logging is enabled, the logs will be generated in the `logging` directory, the 3d outpus will be put in the `output` directory. For example: `/logging/perf_1.csv` or `/output/3d_key_points_1.txt`.
 
 ## Contributors
 
@@ -83,5 +83,3 @@ Baylor McElroy
 Baiden McElroy
 
 Alex Diviney
-
-*No AI was used to generate this file*
