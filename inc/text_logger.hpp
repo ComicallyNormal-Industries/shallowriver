@@ -8,22 +8,16 @@ struct NvAR_Point3f {
     float x, y, z;
 };
 
-class pose_logger {
-	private:
-		std::ofstream poseFile;
+struct pose_logger {
+	std::ofstream poseFile;
 
+	void initPoseLogger(std::string& filename);
 
+	void log_keypoints(const std::vector<NvAR_Point3f>& keypoints);
 
-	public:
-		void initPoseLogger(std::string& filename);
+	void deinitPoseLogger();
 
-		void log_keypoints(const std::vector<NvAR_Point3f>& keypoints);
-
-		void deinitPoseLogger();
-
-		pose_logger();
-    	~pose_logger();
-
+	~pose_logger();
 };
 
 // Per-frame FPS/latency benchmarking, in the same CSV format as the

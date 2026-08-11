@@ -44,7 +44,6 @@ pose_logger::pose_logger() {
     ;
 }
 
-// The Destructor (automatically cleans up when the program closes)
 pose_logger::~pose_logger() {
     deinitPoseLogger();
 }
@@ -138,10 +137,6 @@ void perf_logger::deinit() {
               << ", peak_latency_ms=" << peak_latency_ms << std::endl;
 
     enabled = false;
-}
-
-perf_logger::perf_logger() {
-    ;
 }
 
 perf_logger::~perf_logger() {
