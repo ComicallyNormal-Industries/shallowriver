@@ -21,6 +21,7 @@ struct CudaDeleter {
     }
 };
 
+// single producer single consumer queue. Uses three buffers to avoid copying
 template <typename T>
 class SPSCLatestValueCuda {
 public:
@@ -40,6 +41,8 @@ public:
     SPSCLatestValueCuda(SPSCLatestValueCuda&&) = delete;
     SPSCLatestValueCuda& operator=(SPSCLatestValueCuda&&) = delete;
 
+    // update with an update callable. Use when you need outside context to copy or move information
+    // capture context with a lambda and pass as into the function
     template <typename F>
     void produce_update(F&& updater) {
         updater(*write_buf_);
@@ -48,6 +51,7 @@ public:
         has_new_.notify_one();
     }
     
+    // default move update
     template <typename... Args>
     void produce(Args&&... args) {
         *write_buf_ = T(std::forward<Args>(args)...);
@@ -56,6 +60,7 @@ public:
         has_new_.notify_one(); 
     }
 
+    // blocking consume. Returns with new frame
     T* wait_and_consume() {
         while (!has_new_.load(std::memory_order_acquire)) {
             has_new_.wait(false, std::memory_order_relaxed);
@@ -63,6 +68,7 @@ public:
         return consume();
     }
     
+    // Get latest consume. Used when you are pulling information
     T* consume() {
         if (!has_new_.exchange(false, std::memory_order_acq_rel)) {
             return nullptr;
@@ -72,6 +78,7 @@ public:
         return latest;
     }
 
+    // read without consuming
     T* current() const { return read_buf_; }
 
 private:
@@ -79,6 +86,7 @@ private:
 
     std::unique_ptr<T> buffers_[3];
 
+    // alignas is used to protect gpu memory as it is in blocks of 64
     alignas(cache_line_size) std::atomic<T*> ready_{nullptr};
     alignas(cache_line_size) std::atomic<bool> has_new_{false};
 
@@ -87,15 +95,7 @@ private:
 };
 
 // Same idea as SPSCLatestValueCuda, but supports two producers (P=2), each with its
-// own independent triple-buffer slot -- NOT one slot shared between producers.
-//
-// An earlier version funneled both producers into a single shared `ready_` atomic.
-// That let producer B's exchange silently clobber producer A's just-published value
-// before the consumer ever saw it: whichever producer happened to call exchange()
-// last within a race window "won", and the other's frame was dropped with no
-// record of it happening. With two cameras feeding this queue, whichever camera's
-// capture thread was consistently a little faster (e.g. one webcam vs. another on a
-// different USB port) would win that race most of the time, starving the other one.
+// own independent triple-buffer slot
 //
 // Each producer_id now gets its own slot, and wait_and_consume() alternates which
 // producer it checks first each call, so both get an equal turn regardless of how
