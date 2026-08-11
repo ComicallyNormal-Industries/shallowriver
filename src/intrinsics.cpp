@@ -58,7 +58,7 @@ int intrinsics::run_calibration(int camera_id) {
     cv::aruco::CharucoBoard board(cv::Size(SQUARES_X, SQUARES_Y), SQUARE_LENGTH, MARKER_LENGTH, dictionary);
     cv::aruco::CharucoDetector detector(board);
 
-    // Extract OpenCV's internally generated, perfectly mapped 3D coordinates
+    // Extract OpenCV's internally generated and mapped 3D coordinates
     std::vector<cv::Point3f> board3DPoints = board.getChessboardCorners();
 
     std::vector<std::vector<cv::Point2f>> allImagePoints;
