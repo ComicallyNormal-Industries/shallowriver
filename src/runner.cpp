@@ -290,11 +290,7 @@ void runner::stage3_pose() {
                 
                 auto t0 = std::chrono::steady_clock::now();
 
-                //Setup k_inv BEFORE inference!
-                //Write into the pinned h_k_inv/h_t_form_inv staging buffers (plain CPU copy,
-                //no GPU round trip here). processAndRunBodyPose does the actual host-to-device
-                //transfer as an async copy on bp_ctx.stream, pipelined with input0 and inference,
-                //so the pose thread only blocks once, at the end, instead of on every small copy.
+                // copy camera intrensics into gpu memory before running the model
                 if (p->camera_id == 0) {
                     std::memcpy(p->h_k_inv, geo1.cameraMatrixInverseFloat.ptr<float>(), 9 * sizeof(float));
                 } else {
@@ -304,6 +300,7 @@ void runner::stage3_pose() {
                 //Preprocess Crop (writes into the host staging buffer h_input0; processAndRunBodyPose
                 //copies it to the device buffer d_input0 before inference)
                 preprocessBodyPoseInput(p->model_input, box, input_w, input_h, p->h_input0, t_form_inv);
+                //copy output into pipeline frame
                 std::memcpy(p->h_t_form_inv, t_form_inv.ptr<float>(), 9 * sizeof(float));
                 p->t_s3_pre += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 
@@ -316,6 +313,7 @@ void runner::stage3_pose() {
                 //Decode outputs on correct camera geometry
                 t0 = std::chrono::steady_clock::now();
 
+                // calculate final 3d output from body pose
                 std::vector<NvAR_Point3f> final_3d;
                 if(p->camera_id == 0) {
                     final_3d = processBodyPoseOutput(
@@ -329,7 +327,7 @@ void runner::stage3_pose() {
                     p_logger_2.log_keypoints(final_3d);
                 }
 
-
+                // render output dots for each keypoint on the frame
                 for (int k = 0; k < num_keypoints; ++k) {
                     float kx = p->h_pose2d[k * 3 + 0];
                     float ky = p->h_pose2d[k * 3 + 1];
@@ -403,6 +401,7 @@ void runner::stage4_output() {
             b_cap2 += p->t_cap;
         }
         
+        // calculates time passed for each step
         b_s2_tot += p->t_s2_total; b_s2_pre += p->t_s2_pre; b_s2_inf += p->t_s2_inf; b_s2_post += p->t_s2_post;
         b_s3_tot += p->t_s3_total; b_s3_pre += p->t_s3_pre; b_s3_inf += p->t_s3_inf; b_s3_post += p->t_s3_post;
 
@@ -493,11 +492,7 @@ bool runner::loadAndScaleIntrinsics(const std::string& filepath, cv::Size origSi
     fs["distortion_coefficients"] >> outGeo.distortionCoeffs;
     fs.release();
 
-    // cv::FileStorage leaves the Mat empty (rather than failing) if the node is
-    // missing/malformed -- an empty calibration file would otherwise pass the
-    // isOpened() check above and go straight to .at<double>() on a 0x0 Mat,
-    // which is UB in a Release OpenCV build (no bounds check) and silently
-    // poisons every downstream 3D keypoint with NaN instead of erroring here.
+    // check for correct calibration file format before running
     if (outGeo.cameraMatrixOrig.rows != 3 || outGeo.cameraMatrixOrig.cols != 3) {
         std::cerr << "Error: Calibration file " << filepath
                    << " does not contain a valid 3x3 camera_matrix. Re-run calibration." << std::endl;
@@ -607,6 +602,8 @@ void runner::decodeDetections(const ModelConfig& cfg, bb_context_packet& bb_cont
 
 std::vector<int> runner::applyNMS(const ModelConfig& cfg, const std::vector<cv::Rect>& bboxes, const std::vector<float>& confidences) {
     std::vector<int> nms_indices;
+    // run opencv Non-Maximum Suppression algorithm
+    // merges overlapping bounding boxes into one high confidence box
     cv::dnn::NMSBoxes(bboxes, confidences, cfg.conf_threshold, cfg.nms_threshold, nms_indices);
     return nms_indices;
 }
@@ -655,11 +652,9 @@ void runner::preprocessBodyPoseInput(const cv::Mat& original_frame, const cv::Re
     cv::Mat t_form_inv_double = t_form_3x3.inv(); 
     t_form_inv_double.convertTo(out_t_form_inv, CV_32F);
 
-    //Warp the frame (OpenCV automatically pads empty space with black).
-    //`static thread_local` so the underlying buffer is allocated once and reused across
-    //calls instead of a fresh ~147KB heap allocation every person, every frame -- warpAffine
-    //only reallocates when size/type actually change, which they never do here. Safe since
-    //this is only ever called from the single stage3_pose thread.
+    // transform the pixels from the bounding box into the body pose input frame, combining
+    // translation, rotation, scaling, reflection, and shearing into a single transformation step
+    // static thread_local so the underlying buffer is allocated once and reused
     static thread_local cv::Mat cropped_person;
     cv::warpAffine(original_frame, cropped_person, t_form, cv::Size(input_w, input_h), cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(0,0,0));
     
@@ -701,7 +696,6 @@ std::vector<NvAR_Point3f> runner::processBodyPoseOutput(
     float cy = cameraMatrix.at<double>(1, 2);
 
     for (int k = 0; k < numKeypoints; ++k) {
-        // The array access works exactly the same on the raw pointers!
         float crop_x = pose25d[k * 4 + 0];
         float crop_y = pose25d[k * 4 + 1];
 
