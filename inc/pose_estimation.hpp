@@ -11,6 +11,7 @@
 
 #pragma once
 
+// camera intrensics. set when camera intrensics are calibrated
 struct CameraGeometry {
     cv::Mat cameraMatrixOrig;
     cv::Mat cameraMatrixScaled;
@@ -18,7 +19,8 @@ struct CameraGeometry {
     cv::Mat distortionCoeffs;
 	cv::Mat cameraMatrixInverseFloat;
 };
-	
+
+// body pose model context	
 struct BodyPoseContext {
     std::unique_ptr<nvinfer1::IRuntime> runtime;
     std::unique_ptr<nvinfer1::ICudaEngine> engine;
@@ -26,6 +28,7 @@ struct BodyPoseContext {
     cudaStream_t stream;
 };
 
+// handles body pose model compilation and inference
 struct pose_estimation {
 	bool compileOnnxToEngine(const std::string& onnxPath, const std::string& enginePath, cv::Size targetSize);
 

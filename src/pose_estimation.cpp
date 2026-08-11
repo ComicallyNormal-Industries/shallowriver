@@ -134,9 +134,12 @@ std::vector<char> pose_estimation::loadEngineFile(const std::string& filename) {
 
 void pose_estimation::processAndRunBodyPose(bb_context_packet& context_packet) {
 
+    // copying this frame was necessary for 3d outputbut could possibly be removed in the future. Adds less than .1ms when benchmarked
     cudaMemcpyAsync(context_packet.d_input0, context_packet.h_input0, 1 * 3 * input_h * input_w * sizeof(float), cudaMemcpyHostToDevice, bp_ctx.stream);
+    // copy frame intrensics into gpu memory
     cudaMemcpyAsync(context_packet.d_k_inv_t_form, context_packet.h_k_inv_t_form, (9 + 9) * sizeof(float), cudaMemcpyHostToDevice, bp_ctx.stream);
 
+    // dynamically set model adresses to the current pipeline frame
     bp_ctx.context->setTensorAddress("input0", context_packet.d_input0);
     bp_ctx.context->setTensorAddress("k_inv", context_packet.d_k_inv);
     bp_ctx.context->setTensorAddress("t_form_inv", context_packet.d_t_form_inv);
@@ -148,9 +151,7 @@ void pose_estimation::processAndRunBodyPose(bb_context_packet& context_packet) {
     bp_ctx.context->setTensorAddress("pose25d", context_packet.d_pose25d);
     bp_ctx.context->setTensorAddress("pose3d", context_packet.d_pose3d);
 
-    // ==========================================
-    // LATENCY FIX: Only set shapes once!
-    // ==========================================
+    // only allocate shapes once
     static bool shapes_set = false;
     if (!shapes_set) {
         bp_ctx.context->setInputShape("input0", nvinfer1::Dims4{1, 3, input_h, input_w});
@@ -161,12 +162,15 @@ void pose_estimation::processAndRunBodyPose(bb_context_packet& context_packet) {
         shapes_set = true;
     }
 
+    // schedule the pose to run on the gpu
     if (!bp_ctx.context->enqueueV3(bp_ctx.stream)) {
         std::cerr << "Body pose 3D inference enqueue failed." << std::endl;
         return;
     }
 
+    // added to fix a 3d output bug. Could be removed in the future
     cudaMemcpyAsync(context_packet.h_pose_out, context_packet.d_pose_out, (num_keypoints * 3 + num_keypoints * 4 + num_keypoints * 3) * sizeof(float), cudaMemcpyDeviceToHost, bp_ctx.stream);
+    // block until gpu is done
     cudaStreamSynchronize(bp_ctx.stream);
 }
 
