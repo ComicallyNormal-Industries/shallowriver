@@ -1,3 +1,5 @@
+// Opencv camera settings. Some presets are set here as examples. Change frame size and fps here to match what your webcam supports or change device path
+
 
 //if io-mode=2 supported (newer camera), not resized on input
 // std::string gst_cam1 = "v4l2src device=/dev/video0 io-mode=2 ! image/jpeg, width=1920, height=1080, framerate=30/1 ! jpegparse ! nvv4l2decoder mjpeg=1 ! nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! video/x-raw, format=BGR ! appsink name=appsink drop=true sync=false";
