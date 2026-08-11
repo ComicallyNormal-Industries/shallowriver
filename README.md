@@ -17,50 +17,13 @@ sudo apt install ./shallowriver.deb
 
 ### Dependencies
 
-**This project assumes you are using JetPack 7.2 paired with Jetson Linux 39.2**
+This project assumes you are using JetPack 7.2 paired with Jetson Linux 39.2
 
-These packages should be included by default in JetPack
-
-* OpenCV
-* CUDA
-* TENSORRT
+Run the install script to install dependencies, create the build directory and compile
 
 ```
-sudo apt install nvidia-jetpack
-```
-
-These packages need to be installed but can be found with apt
-
-### CMake
-
-```
-sudo apt install cmake
-```
-
-### Eigen3
-
-```
-sudo apt install libeigen3-dev
-```
-
-### Building
-
-* Create build directory
-
-```
-mkdir build && cd build
-```
-
-* Initialize CMake
-
-```
-cmake ..
-```
-
-* build
-
-```
-make
+chmod +x install.sh
+sudo ./install.sh
 ```
 
 ## Setup and Calibration
