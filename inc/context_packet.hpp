@@ -1,6 +1,8 @@
 
 #include <chrono>
 
+// main pipeline context packet passed through the stages
+
 constexpr size_t PEOPLENET_WIDTH = 960;  // 60 grid_w * 16 stride_x
 constexpr size_t PEOPLENET_HEIGHT = 544; // 34 grid_h * 16 stride_y
 constexpr size_t PEOPLENET_CHANNELS = 3;
@@ -52,6 +54,7 @@ struct bb_context_packet
     // spent waiting in the inter-stage queues, not just active processing time.
     std::chrono::steady_clock::time_point t_capture_ts{};
 
+    // timestamping varuables
     double t_s2_total = 0.0;
     double t_s2_pre = 0.0;
     double t_s2_inf = 0.0;
@@ -62,9 +65,10 @@ struct bb_context_packet
     double t_s3_inf = 0.0;
     double t_s3_post = 0.0;
 
-
+    // frame counter
     uint64_t frame_id;
 
+    // which camera this frame belongs too
     uint32_t camera_id = 0;
 
     std::vector<cv::Rect> bboxes;
