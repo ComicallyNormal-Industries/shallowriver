@@ -1,4 +1,4 @@
-
+// global pool of pointers passed through the pipeline stages
 
 using PacketPtr = std::shared_ptr<bb_context_packet>;
 
@@ -30,6 +30,7 @@ struct PacketPool {
     }
 };
 
+// global pool variable. used to get a new context pointer, automatically frees when not used
 extern PacketPool global_pool;
 
 // Add 'inline' to the function so the linker knows to merge duplicates
