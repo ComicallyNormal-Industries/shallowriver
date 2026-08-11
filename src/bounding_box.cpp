@@ -7,6 +7,7 @@ bool bounding_box::compileOnnxToEngine(const std::string& onnxPath, const std::s
 	std::cout << "\n========================================================" << std::endl;
 	std::cout << "TensorRT 10 Engine Compiler Active Engine Optimization" << std::endl;
 	std::cout << "Building from: " << onnxPath << std::endl;
+    std::cout << "This will take about 10-15 minutes" << std::endl;
 	std::cout << "========================================================\n" << std::endl;
 
 	nvinfer1::IBuilder* builder = nvinfer1::createInferBuilder(gLogger);
@@ -81,13 +82,6 @@ bool bounding_box::compileOnnxToEngine(const std::string& onnxPath, const std::s
 
     config->setMemoryPoolLimit(nvinfer1::MemoryPoolType::kWORKSPACE, 1ULL << 30);
 
-	if (builder->platformHasFastFp16()) {
-        config->setFlag(nvinfer1::BuilderFlag::kFP16);
-        std::cout << "FP16 Hardware detected. Enabling FP16 optimization." << std::endl;
-    } else {
-        std::cout << "Warning: FP16 not supported on this device. Using FP32." << std::endl;
-    }
-
     // Let the builder auto-optimize target arrays internally via strongly typed layout constraints
     std::cout << "Hardware mapping validation initialized..." << std::endl;
 
@@ -142,6 +136,7 @@ bool bounding_box::initializeTRT(const std::string& engine_file, const cv::Size&
 }
 
 bool bounding_box::runInference(bb_context_packet& bb_context) {
+    // dynamically set addresses to the current frame in the pipeline
     bb_ctx.context->setTensorAddress("input_1:0", bb_context.d_input);
     bb_ctx.context->setTensorAddress("output_bbox/BiasAdd:0", bb_context.d_bbox);
     bb_ctx.context->setTensorAddress("output_cov/Sigmoid:0", bb_context.d_cov);
@@ -151,7 +146,9 @@ bool bounding_box::runInference(bb_context_packet& bb_context) {
         bb_ctx.context->setInputShape("input_1:0", nvinfer1::Dims4{1, 3, PEOPLENET_HEIGHT, PEOPLENET_WIDTH});
         shapes_set = true;
     }
+    // run the model on gpu
     bb_ctx.context->enqueueV3(bb_ctx.stream);
+    // wait until the gpu finishes to continue
     cudaError_t sync_status = cudaStreamSynchronize(bb_ctx.stream);
 
     if (sync_status != cudaSuccess) {

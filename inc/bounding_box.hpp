@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include "context_packet.hpp"
 
+// static model information
 struct ModelConfig {
     int grid_h = 34;
     int grid_w = 60;
@@ -24,6 +25,7 @@ struct ModelConfig {
     std::vector<std::string> class_labels = {"Person", "Bag", "Face"};
     std::vector<cv::Scalar> class_colors = {cv::Scalar(0, 0, 255), cv::Scalar(0, 255, 0), cv::Scalar(255, 0, 0)};
 };
+
 //TRTContext
 struct  BoundingBoxContext{
     std::unique_ptr<nvinfer1::IRuntime> runtime;
@@ -32,24 +34,24 @@ struct  BoundingBoxContext{
     cudaStream_t stream;
 };
 
-class bounding_box {
-	public:
-		bool compileOnnxToEngine(const std::string& onnxPath, const std::string& enginePath, cv::Size targetSize);
+// handles bouding box model compilation and inference
+struct bounding_box {
+    bool compileOnnxToEngine(const std::string& onnxPath, const std::string& enginePath, cv::Size targetSize);
 
-		std::vector<char> loadEngineFile(const std::string& filename);
+    std::vector<char> loadEngineFile(const std::string& filename);
 
-		bool initializeTRT(const std::string& engine_file, const cv::Size& resolution);
+    bool initializeTRT(const std::string& engine_file, const cv::Size& resolution);
 
-		bool runInference(bb_context_packet& bb_context);
-	
-		void cleanupTRT();
+    bool runInference(bb_context_packet& bb_context);
 
-		ModelConfig config;
-		BoundingBoxContext bb_ctx;
+    void cleanupTRT();
 
-		int setup(std::string engine_file, std::string onnx_file, cv::Size targetSize, bool rebuild);
+    ModelConfig config;
+    BoundingBoxContext bb_ctx;
 
-		BoundingBoxContext* getContextPtr();
-		ModelConfig* getConfigPtr();
+    int setup(std::string engine_file, std::string onnx_file, cv::Size targetSize, bool rebuild);
+
+    BoundingBoxContext* getContextPtr();
+    ModelConfig* getConfigPtr();
 
 };
