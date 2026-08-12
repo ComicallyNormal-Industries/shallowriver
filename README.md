@@ -26,6 +26,17 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
+### Building the project
+Create the build directory, then use CMake and make to build the project. The build directory is expected to be under `/shallowriver/` for the `/res` folder to be copied correctly.
+
+```
+mkdir build
+cd build
+cmake ..
+make
+```
+
+
 ## Setup and Calibration
 
 **There are a few requirements to run Shallowriver.**
@@ -58,7 +69,7 @@ The onnx engine file must be built before running. It will take 10-15 minutes. T
   * example: `./shallowriver --c 1`
 * `--run --r [1|2|both]` 
   * runs the inference model on the cameras specified. Camera 1 maps to `/etc/video0` and camera 2 maps to `/etc/video2`. If the cameras are not using the default ports, then you can modify the OpenCV camera settings in `/inc/camera_defs.hpp` and switch `v4l2src device=` to the correct port for each camera. 
-  * example: `./shallowriver --r both`
+  * example: `./shallowriver --r both`chmod +x install.sh
 * `--engine --e` 
   * recompiles the onnx engine 
   * example:  `./shallowriver --e`
