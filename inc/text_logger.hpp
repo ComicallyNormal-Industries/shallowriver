@@ -35,36 +35,35 @@ struct pose_logger {
 // Disabled (is_enabled() == false) until init() is called with enable=true,
 // at which point every method is a no-op -- safe to call unconditionally
 // from the pipeline without every call site needing its own enabled check.
-class perf_logger {
-	private:
-		std::ofstream perfFile;
-		bool enabled = false;
+struct perf_logger {
 
-		std::string camera_id;
+	std::ofstream perfFile;
+	bool enabled = false;
 
-		long frame_number = 0;
+	std::string camera_id;
 
-		std::chrono::steady_clock::time_point start_time{};
-		std::chrono::steady_clock::time_point last_fps_window_time{};
-		long last_fps_window_frame = 0;
-		double current_fps = 0.0;
+	long frame_number = 0;
 
-		double total_latency_ms = 0.0;
-		long latency_sample_count = 0;
-		double peak_latency_ms = 0.0;
+	std::chrono::steady_clock::time_point start_time{};
+	std::chrono::steady_clock::time_point last_fps_window_time{};
+	long last_fps_window_frame = 0;
+	double current_fps = 0.0;
 
-	public:
-		void init(const std::string& filename, const std::string& camera_id, bool enable);
+	double total_latency_ms = 0.0;
+	long latency_sample_count = 0;
+	double peak_latency_ms = 0.0;
 
-		// Call once per frame. latency_ms is however the caller measures
-		// "time since this frame entered the pipeline" -- this class just
-		// tracks/writes the running stats around whatever value it's given.
-		void log_frame(double latency_ms);
 
-		void deinit();
+	void init(const std::string& filename, const std::string& camera_id, bool enable);
 
-		bool is_enabled() const { return enabled; }
+	// Call once per frame. latency_ms is however the caller measures
+	// "time since this frame entered the pipeline" -- this class just
+	// tracks/writes the running stats around whatever value it's given.
+	void log_frame(double latency_ms);
 
-		perf_logger();
-		~perf_logger();
+	void deinit();
+
+	bool is_enabled() const { return enabled; }
+
+	~perf_logger();
 };
