@@ -40,10 +40,6 @@ void pose_logger::log_keypoints(const std::vector<NvAR_Point3f>& keypoints){
 
 }
 
-pose_logger::pose_logger() {
-    ;
-}
-
 pose_logger::~pose_logger() {
     deinitPoseLogger();
 }

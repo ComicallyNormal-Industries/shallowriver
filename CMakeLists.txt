@@ -34,7 +34,6 @@ set(SOURCES
     src/pose_estimation.cpp
     src/runner.cpp
     src/text_logger.cpp
-    src/visualizer.cpp
 	src/glogger.cpp
 	src/paths.cpp
 )
