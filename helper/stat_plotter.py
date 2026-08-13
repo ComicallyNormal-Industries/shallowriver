@@ -129,7 +129,7 @@ def plot_summary_bar(datasets, out_path):
 
 def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    logging_dir = os.path.join(script_dir, '..', 'build', 'logging')
+    logging_dir = os.path.join(script_dir, '..', 'build', 'res', 'logging')
     plots_dir = os.path.join(script_dir, '..', 'build', 'stats')
     os.makedirs(plots_dir, exist_ok=True)
 

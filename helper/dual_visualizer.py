@@ -188,8 +188,8 @@ def update_plot(val):
 # --- Main Setup ---
 # Using os.path to ensure it finds the files regardless of where you run the script from
 script_dir = os.path.dirname(os.path.abspath(__file__))
-filepath_1 = os.path.join(script_dir, '..', 'build', 'output', '3d_key_points_1.txt')
-filepath_2 = os.path.join(script_dir, '..', 'build', 'output', '3d_key_points_2.txt')
+filepath_1 = os.path.join(script_dir, '..', 'build', 'res', 'output', '3d_key_points_1.txt')
+filepath_2 = os.path.join(script_dir, '..', 'build', 'res', 'output', '3d_key_points_2.txt')
 
 all_frames_1 = load_data(filepath_1)
 all_frames_2 = load_data(filepath_2)
