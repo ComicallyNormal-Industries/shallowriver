@@ -75,7 +75,7 @@ The onnx engine file must be built before running. It will take 10-15 minutes. T
   * example: `./shallowriver --c 1`
 * `--run --r [1|2|both]` 
   * runs the inference model on the cameras specified. Camera 1 maps to `/etc/video0` and camera 2 maps to `/etc/video2`. If the cameras are not using the default ports, then you can modify the OpenCV camera settings in `/inc/camera_defs.hpp` and switch `v4l2src device=` to the correct port for each camera. 
-  * example: `./shallowriver --r both`chmod +x install.sh
+  * example: `./shallowriver --r both`
 * `--engine --e` 
   * recompiles the onnx engine 
   * example:  `./shallowriver --e`
@@ -119,6 +119,13 @@ python3 stat_plotter.py
 ```
 
 This program generates the .png files used in the paper, which shows the fps and latency of each frame.
+
+### Nsight
+
+To generate the NVIDIA Nsight profile from the paper, use this command
+```
+sudo nsys profile -t cuda,osrt,nvtx -o shallowriver_profile ./shallowriver --r both
+```
 
 ## Contributors
 
