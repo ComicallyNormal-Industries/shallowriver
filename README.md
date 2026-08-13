@@ -7,6 +7,14 @@
 
 **Shallow River is a neccessary optimization for Phyiscal AI where latency is the main bottleneck.** Industries such as VR and robotics are highly sensitive to frame latency where current approaches fall short.  
 
+## Orin Setup
+
+Follow this installation guide, this project assumes you are using JetPack 7.2 paired with Jetson Linux 39.2 [https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/latest/quick_start.html](https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/latest/quick_start.html)
+
+## Camera requirements
+
+This project is setup by default to support up to two USB webcams that run 1920x1080 at 30 fps using v4l2src. If your camera does not support this format then you will have to update the camera definitions in `inc/camera_defs.hpp` to match what your camera supports.
+
 ## Install
 
 To install using the provided apt .deb package use this command, or follow the build instructions to compile from source. Download the shallowriver.deb to /tmp and run the command there so that it does not get blocked by usr read and write protections.
@@ -16,8 +24,6 @@ sudo apt install ./shallowriver.deb
 ## Build
 
 ### Dependencies
-
-This project assumes you are using JetPack 7.2 paired with Jetson Linux 39.2
 
 Run the install script to install dependencies, create the build directory and compile
 
@@ -41,13 +47,9 @@ make
 
 **There are a few requirements to run Shallowriver.**
 
-1. Building the engine file
+**Calibration**
 
-The onnx engine file must be built before running. It will take 10-15 minutes. This can be done with the -engine or --e argument, or it is done on the first run of the project.
-
-2. Calibration
-
-**All cameras used must be calibrated for for the output to work correctly.** 
+*All cameras used must be calibrated for for the output to work correctly.*
 
 1. Generate the ChAruCo board.
 
@@ -59,6 +61,10 @@ The onnx engine file must be built before running. It will take 10-15 minutes. T
 2. Calibrate the Cameras.
 
 * To calibrate a camera use -calibrate or --c followed by 1 for the first camera or 2 for the second camera. Use the provided ChArUco board to capture 15 frames by pressing the space bar. Make sure to capture frames with the ChArUco board at the edges at different angles, and one up close covering the frame. Make sure at least four id's are showing in red over the ArUco makers before capturing a frame. When 15 frames are collected, press enter to run the calibration. Each calibration file is saved under the `/build/res` directory. Do this seperately for each camera used.
+
+**Building the engine file**
+
+The onnx engine file must be built before running. It will take 10-15 minutes. This can be done with the -engine or --e argument, or it is done on the first run of the project.
 
 ## Running the project 
 
@@ -85,7 +91,12 @@ The onnx engine file must be built before running. It will take 10-15 minutes. T
 
 ## outputs
 
-There are two output locations, differing based on how the project is run. When run through the apt package, the base path will be `/.local/share/shallowriver`. When running in the build directory it will be local, in `/build/res`. If logging is enabled, the logs will be generated in the `logging` directory, the 3d outpus will be put in the `output` directory. For example: `/logging/perf_1.csv` or `/output/3d_key_points_1.txt`.
+### frame view
+
+One or two Opencv windows will appear based on the number of cameras used. For best accuracy make sure the full body is in view of the camera.
+
+### 3d keypoints
+There are two output locations, differing based on how the project is run. When run through the apt package, the base path will be `~/.local/share/shallowriver`. When running in the build directory it will be local, in `/build/res`. If logging is enabled, the logs will be generated in the `logging` directory, the 3d outpus will be put in the `output` directory. For example: `/logging/perf_1.csv` or `/output/3d_key_points_1.txt`.
 
 ## Contributors
 
