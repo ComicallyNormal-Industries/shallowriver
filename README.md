@@ -1,5 +1,5 @@
 
-# SHALLOWRIVER
+# Shallow River
 
 **Shallow River is a multi-camera body-pose pipline optimized for latency on the Jetson Orin.** It provides an alternitive approach to NVIDIA deepstream, where realtime frame latency is prioritized over total fps. This is acomplished using ARM unified memory to pipline camera frames with a zero copy queue architecture and NVIDIA CUDA running the bounding box and body pose models.
 
