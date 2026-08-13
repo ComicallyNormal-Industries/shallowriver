@@ -11,7 +11,7 @@
 
 Follow this installation guide, this project assumes you are using JetPack 7.2 paired with Jetson Linux 39.2 [https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/latest/quick_start.html](https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/latest/quick_start.html)
 
-## Camera requirements
+## Camera Requirements
 
 This project is setup by default to support up to two USB webcams that run 1920x1080 at 30 fps using v4l2src. If your camera does not support this format then you will have to update the camera definitions in `inc/camera_defs.hpp` to match what your camera supports.
 
@@ -89,7 +89,7 @@ The onnx engine file must be built before running. It will take 10-15 minutes. T
   * print pipeline benchmark stats to the terminal (with --run/--engine)
   * example: `./shallowriver --r both --p`
 
-## outputs
+## Outputs
 
 ### frame view
 
@@ -97,6 +97,28 @@ One or two Opencv windows will appear based on the number of cameras used. For b
 
 ### 3d keypoints
 There are two output locations, differing based on how the project is run. When run through the apt package, the base path will be `~/.local/share/shallowriver`. When running in the build directory it will be local, in `/build/res`. If logging is enabled, the logs will be generated in the `logging` directory, the 3d outpus will be put in the `output` directory. For example: `/logging/perf_1.csv` or `/output/3d_key_points_1.txt`.
+
+## Visualization
+
+There are two python scripts provided to visualize the 3d output and performance of shallowriver. 
+
+### 3d visualizer
+
+in the `/helper/` directory, run
+```
+python3 dual_visualizer.py
+```
+
+When this program is run, a plot will appear that you can view the keypoint frames. The frames are normalized to the camera for ease of viewing.
+
+### performance visualizer
+
+first, run shallowriver with the --logging option `./shallowriver --r both --l` to generate the performance log files. Then, in the `/helper/` directory, run
+```
+python3 stat_plotter.py
+```
+
+This program generates the .png files used in the paper, which shows the fps and latency of each frame.
 
 ## Contributors
 
